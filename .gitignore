@@ -1,0 +1,7 @@
+# .gitignore
+
+# Ignore Mac system files
+.DS_Store
+
+# Ignore Python compiled files
+*.pyc
