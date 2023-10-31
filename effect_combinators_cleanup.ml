@@ -59,7 +59,8 @@ type ('x, 'y) atom =
 
 (* pipeline constructors are annotated with locations *)
 type _ pipe =  
-  | Atom : loc * ('x, 'y) atom -> ('x * 'y) pipe (* an atom is a pipeline *)
+  | Atom : 
+  loc * ('x, 'y) atom -> ('x * 'y) pipe (* an atom is a pipeline *)
   | Compose : ('x * 'y) pipe * ('y * 'z) pipe -> ('x * 'z) pipe (* a composition of pipelines is a pipeline *)
   | Shard : loc * locset -> (('x * loc) * 'x) pipe (* a "shard" command is a pipeline that copies data 
        from a source location to a subset of destination locations, where each input is 
