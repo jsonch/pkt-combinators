@@ -1,1 +1,3 @@
 .*
+pktlib/_build
+pktlib/progs/*/main

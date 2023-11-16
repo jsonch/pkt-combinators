@@ -2,10 +2,13 @@
 type loc = Loc.t
 type locset = loc list
 
-type ('x, 'y) atom = 
-  { name : string; 
-    f : 'x -> 'y;
-  }
+(*class virtual ['x, 'y] atom (name : string) =
+  object (_)
+    method get_name = name
+    method virtual f : 'x -> 'y
+  end;;*)
+
+type ('x, 'y) atom = <get_name : string; f : 'x -> 'y>;;
 
 type ('a, 'x, 'y) annotated_pipe = 
   | Atom        : 'a * ('x, 'y) atom -> ('a, 'x , 'y) annotated_pipe (* construct an atomic pipeline *)  
@@ -18,7 +21,7 @@ type ('a, 'x, 'y) annotated_pipe =
 ;;
 
 let rec to_string : type x y. (_, x, y) annotated_pipe -> string = function
-| Atom (_, a) -> "Atom " ^ a.name
+| Atom (_, a) -> "Atom " ^ a#get_name
 | Copy (_, i) -> "Copy " ^ (string_of_int i)
 | Move (_, locs) -> "Move " ^ (Loc.to_strings locs)
 | Sequence (_, p1, p2) -> "(" ^ (to_string p1) ^ " >>> " ^ (to_string p2) ^ ")"

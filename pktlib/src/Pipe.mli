@@ -2,11 +2,11 @@
 
 (** [('x, 'y) pipe] is a pipeline from x's to y's *)
 type ('x, 'y) pipe = ('x, 'y) Syntax.pipe
-
+type ('x, 'y) atom = ('x, 'y) Syntax.atom
 (** [id] creates an identity pipe. *)
 
 (** [atom name f] creates an atomic pipe with the given name and function. *)
-val atom : string -> ('x -> 'y) -> ('x, 'y) pipe
+val atom : ('x,'y) atom -> ('x, 'y) pipe
 
 (** [copy n] creates a pipe that copies its input [n] times. *)
 val copy : int -> ('x, 'x) pipe
@@ -46,6 +46,7 @@ val shard : Loc.t list -> ('x * Loc.t, 'x) pipe
 
 (** [const_move] move to a fixed location *)
 val const_move : Loc.t -> ('x, 'x) pipe
+val stateless_atom : string -> ('x -> 'y) -> ('x, 'y) pipe
 
 (** [parallel_shared locs pipe] creates a pipeline that applies [pipe] to its input in parallel across the given locations, sharing the input across all cores. *)
 val parallel_shared : Loc.t list -> ('x, 'y) pipe -> ('x, 'y) pipe

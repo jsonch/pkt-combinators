@@ -5,7 +5,7 @@ let rec eval : type x y. (_, x , y) annotated_pipe -> x located list -> (y locat
   fun pipe located_xs ->
     match pipe with
     | Atom(_, atom) -> 
-      List.map (fun (loc, x) -> (loc, atom.f x)) located_xs
+      List.map (fun (loc, x) -> (loc, atom#f x)) located_xs
     | Copy(_, n) -> 
       List.init n (fun _ -> List.hd located_xs)
     | Locate(_) -> located_xs

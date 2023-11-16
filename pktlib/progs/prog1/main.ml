@@ -30,29 +30,28 @@ let parsed_pkt_to_string pkt =
 ;;
 
 (* atoms *)
-let parse = atom "parse"
-  (fun bs -> 
-     let src = int_of_char (Bytes.get bs 0) in
-     let dst = int_of_char (Bytes.get bs 1) in
-     let payload = Bytes.sub bs 2 ((Bytes.length bs) - 2) in
-     {src = src; dst = dst; payload = payload})   
-;;
+let parse = stateless_atom "parse" (fun bs -> 
+  let src = int_of_char (Bytes.get bs 0) in
+  let dst = int_of_char (Bytes.get bs 1) in
+  let payload = Bytes.sub bs 2 ((Bytes.length bs) - 2) in
+  {src = src; dst = dst; payload = payload})
 
-(* note: right now, round_robin uses state declared outside of the atom, 
-   because we haven't added state into the our library yet. *)
-let round_robin_2_ctr = ref 0 ;; 
-let round_robin_2 = atom "round_robin_2" 
+let round_robin_2 = atom (object (_) 
+  val mutable ctr : int = (0)
+  method get_name = "round_robin_2"
+
+  method f = 
   (fun pkt -> 
-    let ctr = !(round_robin_2_ctr) in
-    round_robin_2_ctr := ctr + 1;
     let next_core = if ctr mod 2 = 0 then core 1 else core 2 in
+    ctr <- ctr + 1;
     (pkt, next_core))
+  end)
 ;;
-let swap_addrs = atom "swap"
+let swap_addrs = stateless_atom "swap"
   (fun pkt -> 
     {src = pkt.dst; dst = pkt.src; payload = pkt.payload})
 ;;
-let random_addrs = atom "random"
+let random_addrs = stateless_atom "random"
   (fun pkt -> 
     Random.init (int_of_float (Unix.time ()));
     let src = Random.int 100 in

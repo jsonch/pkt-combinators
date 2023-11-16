@@ -7,9 +7,11 @@ type locset = loc list
 (* a pipe is just an annotated pipe annotated with units *)
 type ('x, 'y) pipe = ('x, 'y) Syntax.pipe
 
+type ('x, 'y) atom = ('x, 'y) Syntax.atom
+
 (*** primitive combinators ***)
 
-let atom name f : ('x, 'y) pipe = Atom((), {name; f})
+let atom obj : ('x, 'y) pipe = Atom((), obj)
 let copy n : ('x, 'x) pipe = Copy((), n)
 let move locs : ('x * loc, 'x) pipe = Move((), locs)
 let sequence p1 p2 : ('x, 'y) pipe = Sequence((), p1, p2)
@@ -21,11 +23,20 @@ let unshared : ('x, 'y) pipe = Share((), false)
 let locate locs : ('x, 'x) pipe = Locate((), locs)
 let shard = move
 
+let stateless_atom name f = atom
+  object (_)
+    method get_name = name
+    method f = f
+  end
+
 (*** composite / convenience combinators ***)
 let const_move l = (* move every packet to a single location *)
-  let cmove = atom "const_move" (fun x -> (x, l)) in
+  let cmove = stateless_atom "const_move" (fun x -> (x, l))
+  in
   sequence cmove (move [l])
 ;;
+
+
 
 let at l p = (locate [l] >>> p) (* indicate where the pipeline begins *)
 
