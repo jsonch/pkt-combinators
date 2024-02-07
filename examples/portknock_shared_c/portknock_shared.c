@@ -56,25 +56,112 @@ struct tcphdr {
 };
 
 
+/* user-defined stuff */
+
+// user-defined metadata
 struct metadata; 
 
+// user-defined atom type
 typedef enum { STOP = 0, CONTINUE = 1 } atom_ret;
-
 typedef atom_ret (*atom)(const u_char *, struct metadata *); 
 
-/* function signatures */
-int main(int argc, char *argv[]);
+// user-defined packet handler
 void handle_packet(struct pcap_pkthdr *header, const u_char *packet);
+
+
+/* helper functions for user code */
 void ip_to_string(uint32_t ip, char *buf);
 void print_tcp_pkt(const u_char *pkt, int len);
 
-// global state helpers
-#define CREATE_STATE(state_name, state_type, state_size) \
-    state_type state_name[state_size] = {0}
-#define GET_STATE(state_name, state_type, index) \
-    &((state_type *)state_name)[index]
 
-/*** user/compiler written code ***/
+/* state macro helpers for user code */
+
+/* STATE_DECLARE_SHARED(state_name, state_type, state_size, init_value)
+    This sets up a state variable that is shared across processes.
+    It should be called in the global scope. It declares:
+    1. a struct type for the state variable 
+    2. a global instance of the state variable
+    2. a function to allocate a shared state variable
+    i.e.: 
+        typedef struct {
+            sem_t* lock;
+            $(state_type) cells[$(state_size)];
+        } $(state_name)_t;
+
+        $(state_name)_t *create_shared_data() {
+            $(state_name)_t out_var;
+            // ... mmap stuff elided ...
+            // for each cell i in out_var -> cells:
+            //  out_var[i] = init_value            
+            // return out_var;        }
+*/        
+#define STATE_DECLARE_SHARED(state_name, state_type, state_size, init_value) \
+    typedef struct { \
+        sem_t* lock; \
+        state_type cells[state_size]; \
+    } state_name##_t; \
+    \
+    state_name##_t *state_name; \
+    \
+    state_name##_t *create_##state_name() { \
+        state_name##_t *out_var = mmap(NULL, sizeof(state_name##_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0); \
+        if (out_var == MAP_FAILED) { \
+            perror("mmap failed"); \
+            return NULL; \
+        } \
+        \
+        char sem_name[20]; \
+        sprintf(sem_name, "/semaphore-%d", getpid()); \
+        out_var->lock = sem_open(sem_name, O_CREAT, 0644, 1); \
+        if (out_var->lock == SEM_FAILED) { \
+            perror("sem_open failed"); \
+            return NULL; \
+        } \
+        sem_unlink(sem_name); \
+        \
+        for (int i = 0; i < state_size; i++) { \
+            out_var->cells[i] = init_value; \
+        } \
+        \
+        return out_var; \
+    }
+
+/* STATE_ALLOC(state_name)
+    Call this to allocate an instance of the state 
+    that can be shared across processes. Probably call 
+    this in main. 
+    It initializes the global state variable $state_name by calling: 
+    $(state_name) = create_$(state_name)();
+*/
+#define STATE_ALLOC(state_name) \
+    state_name = create_##state_name();
+
+/* STATE_GET(state_name, index) 
+    Call this to get a _pointer_ to the contents 
+    of the given state variable at the given index. 
+    i.e., &( $(state_name)->cells[$(index)] )
+*/
+#define STATE_GET(state_name, index) \
+    &(state_name->cells[index])
+
+/* STATE_LOCK(state_name)
+    Call this to lock the shared state's semaphore. 
+    Should be used before STATE_GET.
+    sem_wait($(state_name)->lock);
+*/
+#define STATE_LOCK(state_name) \
+    sem_wait(state_name->lock);
+
+/* STATE_UNLOCK(state_name) 
+    Call this to release the shared state's semaphore. 
+    Should be used after you're finished modifying the state.
+*/
+#define STATE_UNLOCK(state_name) \
+    sem_post(state_name->lock);
+
+
+
+/*** user written code ***/
 
 // the metadata struct
 typedef struct metadata {
@@ -86,12 +173,24 @@ typedef struct metadata {
     uint32_t cur_state;
 } metadata;
 
+STATE_DECLARE_SHARED(my_arr, int, 1024, 0)
+
 
 /* packet handling function. User-written, but barely. */
 void handle_packet(struct pcap_pkthdr *header, const u_char *packet) {
     printf ("---packet---\n");
-    print_tcp_pkt(packet, header->len);
+    // Wait on the semaphore to ensure exclusive access to the shared state
+    STATE_LOCK(my_arr);
+    // Safely increment the shared state
+    int* cell = STATE_GET(my_arr, 0);
+    *cell += 1;
+    printf("new value of my_arr[0] = %d\n", *cell);
+    // unlock the semaphore
+    STATE_UNLOCK(my_arr);
+
 }
+
+/*** library / system code (the same for every program) ***/
 
 void ip_to_string(uint32_t ip, char *buf) {
     // use inet function to convert ip address uint32_t to string
@@ -115,66 +214,40 @@ void print_tcp_pkt(const u_char *pkt, int len) {
     free(src_ip_str); free(dst_ip_str);
 }
 
-/* shared memory helpers */
+/*** main processing loop code -- same for every program ***/
 
-/* 
-toplevel control flow summary: 
+/* toplevel control flow summary: 
     1. program takes a list of n pcaps as arguments, each pcap represents a single thread's workload from a single stream
     2. program allocates shared memory areas for state
     3. program forks n processes
-    4. each process i runs the packet handler loop on the ith process
-*/
-/* 
-    Shared state and allocation
-*/
+    4. each process i runs the packet handler loop on the ith process */
 
-typedef struct {
-    sem_t *sem;
-    int state;
-} SharedData;
 
-SharedData *create_shared_data() {
-    SharedData *data = mmap(NULL, sizeof(SharedData), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    if (data == MAP_FAILED) {
-        perror("mmap failed");
-        return NULL;
+// each worker thread / process runs this function, 
+// which just opens its assigned pcap and runs the packet handler loop
+void worker_main(char* pcap_fn) {
+    printf("Child process created for pcap: %s\n", pcap_fn);
+
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t *handle = pcap_open_offline(pcap_fn, errbuf);
+    if (handle == NULL) {
+        printf("Couldn't open pcap file %s: %s\n", pcap_fn, errbuf);
+        return;
+    }
+    struct pcap_pkthdr header;
+    const u_char *packet;
+    while ((packet = pcap_next(handle, &header)) != NULL) {
+        handle_packet(&header, packet);
     }
 
-    // Generate a unique name for the semaphore
-    char sem_name[20];
-    sprintf(sem_name, "/semaphore-%d", getpid());
-
-    // Open a named semaphore
-    data->sem = sem_open(sem_name, O_CREAT, 0644, 1);
-    if (data->sem == SEM_FAILED) {
-        perror("sem_open failed");
-        return NULL;
-    }
-
-    // Remove the named semaphore. It will be removed once the program exits.
-    sem_unlink(sem_name);
-    data->state = 0;
-    return data;
-}
-
-// toplevel function for worker processes
-void worker_main(int i, char* pcap_fn, SharedData *data) {
-    printf("Child process %d created, handling pcap: %s\n", i, pcap_fn);
-
-    // Wait on the semaphore to ensure exclusive access to the shared state
-    sem_wait(data->sem);
-
-    // Safely increment the shared state
-    data->state++;
-
-    // Signal the semaphore to allow other processes to access the shared state
-    sem_post(data->sem);
-
+    pcap_close(handle);
     return;
 }
+
+
 // create worker processes, where each process i
 // runs worker_main on the ith pcap file and a pointer to the shared state
-int create_worker_processes(int num_processes, char *pcap_fns[], SharedData * data) {
+int create_worker_processes(int num_processes, char *pcap_fns[]) {
     int i;
     for (i = 0; i < num_processes; i++) {
         pid_t pid = fork();
@@ -186,11 +259,11 @@ int create_worker_processes(int num_processes, char *pcap_fns[], SharedData * da
         } else if (pid == 0) {
             // This is the child process
             // run the worker function, then exit
-            worker_main(i, pcap_fns[i], data);
+            worker_main(pcap_fns[i]);
             _exit(0);
         }
     }
-    return i; // return the number of successfully created child processes
+    return i; // return the number of successfully created worker processes
 }
 
 int main(int argc, char *argv[]) {
@@ -201,12 +274,10 @@ int main(int argc, char *argv[]) {
         printf("Thread %d input: %s\n", i, pcap_fns[i]);
     }
     // 1. allocate shared memory + semaphore
-    SharedData *data = create_shared_data();
-
-    // 2. Initialize the semaphore for shared (between processes) use with an initial value of 1
-    // 3. spawn worker processes
-    int num_created = create_worker_processes(num_threads, pcap_fns, data);
-    // 4. wait for all worker processes to finish
+    STATE_ALLOC(my_arr);
+    // 2. spawn worker processes
+    int num_created = create_worker_processes(num_threads, pcap_fns);
+    // 3. wait for all worker processes to finish
     for(int i = 0; i < num_created; i++) {
         wait(NULL);
     }
