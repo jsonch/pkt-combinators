@@ -12,7 +12,7 @@ build:
 	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) $(LIBS)
 
 pcap: 
-	./testutils.py $(INP_JSON) $(INP)
+	./makepcap.py $(INP_JSON) $(INP)
 
 run: build
 	./$(TARGET) $(INP)

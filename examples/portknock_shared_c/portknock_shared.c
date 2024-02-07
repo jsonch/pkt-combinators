@@ -173,20 +173,122 @@ typedef struct metadata {
     uint32_t cur_state;
 } metadata;
 
-STATE_DECLARE_SHARED(my_arr, int, 1024, 0)
+// helpers
+void metadata_to_string(struct metadata *m, char *buf) {
+    char *src_ip_str = malloc(16); ip_to_string(m->src_ip, src_ip_str);
+    char *dst_ip_str = malloc(16); ip_to_string(m->dst_ip, dst_ip_str);
+    sprintf(buf, "src_ip: %s, dst_ip: %s, src_port: %d, dst_port: %d, pkt_len: %d cur_state: %d", src_ip_str, dst_ip_str, m->src_port, m->dst_port, m->pkt_len, m->cur_state);
+    free(src_ip_str); free(dst_ip_str);
+}
+void print_metadata(struct metadata *m) {
+    char strbuf[128];
+    metadata_to_string(m, strbuf);
+    printf("%s\n", strbuf);
+}
+
+/** atoms and state **/
+// identical parse atom from non-shared version
+atom_ret parse(const u_char *pkt, metadata *m) {
+    // exit if packet is too small
+    if (m->pkt_len < sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct tcphdr)) {
+        return STOP; 
+    }
+    struct ether_header *eth = (struct ether_header *)pkt;
+    // exit if packet is not IP
+    if (eth->ether_type != htons(ETH_P_IP)) {
+        return STOP;
+    }
+    struct iphdr *ip = (struct iphdr *)(pkt + sizeof(struct ether_header));
+    // exit if packet is not TCP
+    if (ip->protocol != IPPROTO_TCP) {
+        return STOP;
+    }
+    struct tcphdr *tcp = (struct tcphdr *)(pkt + sizeof(struct ether_header) + sizeof(struct iphdr));
+    // parsing success -- fill in metadata
+    m->src_ip = ip->saddr;
+    m->dst_ip = ip->daddr;
+    m->src_port = ntohs(tcp->source);
+    m->dst_port = ntohs(tcp->dest);
+    return CONTINUE;
+}
+
+// state transition atom
+enum state {
+  CLOSED_0 = 0,
+  CLOSED_1,
+  CLOSED_2,
+  OPEN,
+};
+#define PORT_1 100
+#define PORT_2 101
+#define PORT_3 102
+// state machine for port knocking -- slightly different 
+// macro from non-shared version. Ideally, 
+// we'd just call "STATE_DECLARE_NONSHARED" with the same args?
+STATE_DECLARE_SHARED(port_states, int, 1024, 0)
+atom_ret update(const u_char *pkt, metadata *m) {
+    // lock the shared state
+    STATE_LOCK(port_states);
+    // get pointer to current state for the port
+    int *value = STATE_GET(port_states, 0);
+    if (!value) {return STOP;} // null pointer -- stop processing.
+    // update the state
+    if (*value == OPEN) {
+        // no update necessary
+    } else if (*value == CLOSED_0 && m->dst_port == PORT_1) {
+        *value = CLOSED_1;
+    } else if (*value == CLOSED_1 && m->dst_port == PORT_2) {
+        *value = CLOSED_2;
+    } else if (*value == CLOSED_2 && m->dst_port == PORT_3) {
+        *value = OPEN;
+    } else {
+        *value = CLOSED_0;
+    }
+    // unlock the shared state
+    STATE_UNLOCK(port_states);
+    // fill in the metadata field for cur_state
+    m->cur_state = *value;
+    return CONTINUE;        
+}
+
+// action atom -- swap ethernet addresses
+// same as non-shared version
+atom_ret action(const u_char *pkt, metadata *m) {
+    // swap ethernet addresses
+    if (m->pkt_len < sizeof(struct ether_header)) {
+        return STOP;
+    }
+    struct ether_header *eth = (struct ether_header *)pkt;
+    uint8_t tmp[6];
+    memcpy(tmp, eth->ether_shost, 6);
+    memcpy(eth->ether_shost, eth->ether_dhost, 6);
+    memcpy(eth->ether_dhost, tmp, 6);
+    return CONTINUE;
+}
 
 
-/* packet handling function. User-written, but barely. */
+/* packet handling function. User-written, but barely. 
+    - this is _exactly the same_ as the non-shared version.
+*/
 void handle_packet(struct pcap_pkthdr *header, const u_char *packet) {
-    printf ("---packet---\n");
-    // Wait on the semaphore to ensure exclusive access to the shared state
-    STATE_LOCK(my_arr);
-    // Safely increment the shared state
-    int* cell = STATE_GET(my_arr, 0);
-    *cell += 1;
-    printf("new value of my_arr[0] = %d\n", *cell);
-    // unlock the semaphore
-    STATE_UNLOCK(my_arr);
+    printf ("---initial packet---\n");
+    print_tcp_pkt(packet, header->len);
+    // allocate packet-local metadata
+    metadata m = {0}; m.pkt_len = header->len;
+    // parse the packet
+    if (parse(packet, &m) == STOP) {return;}
+    printf("--- parsing success ---\n");
+    // update the state
+    if (update(packet, &m) == STOP) {return;}
+    printf("--- state update success ---\n");
+    // apply the action 
+    if(action(packet, &m) == STOP) {return;}
+    printf("--- action success ---\n");
+    // print the packet buffer
+    printf ("---final packet---\n");
+    print_tcp_pkt(packet, header->len);
+    printf ("---final metadata---\n");
+    print_metadata(&m);
 
 }
 
@@ -273,8 +375,8 @@ int main(int argc, char *argv[]) {
     for(int i = 0; i < num_threads; i++) {
         printf("Thread %d input: %s\n", i, pcap_fns[i]);
     }
-    // 1. allocate shared memory + semaphore
-    STATE_ALLOC(my_arr);
+    // 1. allocate all shared state variables (i.e., maps)
+    STATE_ALLOC(port_states);
     // 2. spawn worker processes
     int num_created = create_worker_processes(num_threads, pcap_fns);
     // 3. wait for all worker processes to finish

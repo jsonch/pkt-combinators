@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 
-# this script contains utilities for generating test packets and traces.
+# this script generates a pcap file from a json file that describes a sequence of packets.
 
 import sys, time, random, socket, os, struct, json, copy
 import binascii
 import dpkt
 from collections import namedtuple
 
-"""Testspec utilities."""
-usage = "usage: testspec_info.py testspec.json pkts.pcap"
+usage = "usage: makepcap.py testspec.json pkts.pcap"
 def main():
     generatePcap(sys.argv[1], sys.argv[2])
 
