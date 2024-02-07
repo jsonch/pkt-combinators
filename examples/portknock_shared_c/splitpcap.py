@@ -36,3 +36,7 @@ if __name__ == '__main__':
     for f in outputfiles:
         f.close()
     f.close()
+    # print the names of the output files on a single line, 
+    # space separated, so you can use the output of this script 
+    # as the arguments to portknock_shared
+    print(' '.join(['%s.%d.pcap' % (inputfile, i) for i in range(n)]))
