@@ -38,10 +38,57 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <netinet/if_ether.h>  // for struct ether_header (Ethernet header)
-#include <netinet/ip.h>        // for struct iphdr (IP header)
-#include <netinet/tcp.h>       // for struct tcphdr (TCP header)
+// #include <netinet/if_ether.h>  // for struct ether_header (Ethernet header)
+// #include <netinet/ip.h>        // for struct iphdr (IP header)
+// #include <netinet/tcp.h>       // for struct tcphdr (TCP header)
+
+/* inline header structs (for macos compatability) */
+#define ETH_P_IP    0x0800      /* Internet Protocol packet */
+#define ETHER_ADDR_LEN  6   /* length of an Ethernet address */
+struct  ether_header {
+    u_int8_t  ether_dhost[ETHER_ADDR_LEN];
+    u_int8_t  ether_shost[ETHER_ADDR_LEN];
+    u_int16_t ether_type;
+} __attribute__((__packed__));
+
+struct iphdr {
+    uint8_t  ihl    :4,
+         version:4;
+    uint8_t   tos;
+    uint16_t  tot_len;
+    uint16_t  id;
+    uint16_t  frag_off;
+    uint8_t   ttl;
+    uint8_t   protocol;
+    uint16_t  check;
+    int32_t   saddr;
+    int32_t   daddr;
+};
+typedef        u_int32_t tcp_seq;
+
+struct tcphdr {
+    uint16_t  source;
+    uint16_t  dest;
+    uint32_t  seq;
+    uint32_t  ack_seq;
+    uint16_t   res1:4,
+        doff:4,
+        fin:1,
+        syn:1,
+        rst:1,
+        psh:1,
+        ack:1,
+        urg:1,
+        ece:1,
+        cwr:1;
+    uint16_t  window;
+    uint16_t check;
+    uint16_t  urg_ptr;
+};
+
+
 #include <pcap.h>              // for pcap functions
+
 
 /*** static definitions used to structure user-written code ***/
 
@@ -222,6 +269,7 @@ void handle_packet(struct pcap_pkthdr *header, const u_char *packet) {
     print_tcp_pkt(packet, header->len);
     printf ("---final metadata---\n");
     print_metadata(&m);
+
 }
 
 
