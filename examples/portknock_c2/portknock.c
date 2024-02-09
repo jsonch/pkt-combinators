@@ -151,6 +151,7 @@ typedef struct array_elem {
 } array_elem;
 
 CREATE_STATE(port_states, array_elem, 1024);
+
 update_result_t update(flow_key_t fk) {
     update_result_t rv  = {0};
     // get pointer to current state for the port    
@@ -174,6 +175,8 @@ update_result_t update(flow_key_t fk) {
     return rv;        
 }
 
+
+
 // action atom -- swap ethernet addresses
 typedef enum {
   DROP = 0,
@@ -196,7 +199,6 @@ decision_t action(update_result_t res) {
     return PASS;
 }
 
-
 /* packet handling function. just a chain of functions */
 void handle_packet(struct pcap_pkthdr *header, const u_char *packet) {
     // set global packet and length
@@ -214,7 +216,6 @@ void handle_packet(struct pcap_pkthdr *header, const u_char *packet) {
     printf("final state: %d\n", update_out.final_state);
     printf("action: %d\n", action_out);
 }
-
 
 void ip_to_string(uint32_t ip, char *buf) {
     // use inet function to convert ip address uint32_t to string
@@ -263,4 +264,15 @@ int main(int argc, char *argv[]) {
 
     pcap_close(handle);
     return 0;
+}
+
+
+// brainstorming: 
+// could we have a "higher-order" atom that just calls another atom?
+typedef update_result_t (*update_t)(flow_key_t);
+update_result_t update_iter(update_t update_f, flow_key_t fks[10], update_result_t rv) {
+    for (int i = 0; i < 10; i++) {
+        rv = update_f(fks[i]);
+    }
+    return rv;
 }
