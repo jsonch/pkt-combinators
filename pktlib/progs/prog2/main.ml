@@ -6,7 +6,7 @@ open Loc
 open Pipe
 open LocAnalysis
 open Eval
-open CTypes
+open Ctypes
 open Foreign
 open Ffi_bindings
 
@@ -23,10 +23,13 @@ let test_pipe name pipe item_printer =
 ;;
 
 
-let aparse = atom "parse" (fun (s, pkt, m) -> unit)
 
 (*Open the c library*)
-let libadd = Dl.dlopen ~flags:[Dl.RTLD_LAZY] ~filename:"portknock"
+let libknock = Dl.dlopen ~flags:[Dl.RTLD_LAZY] ~filename:"portknock"
+let parse = foreign ~from:libknock "parse" (state @->  (ptr void) @-> (ptr metadata) @-> returning atom_ret)
+
+let aparse = atom "parse" (fun (s, pkt, m) -> parse s pkt m)
+
 (* packet types *)
 type unparsed_pkt = bytes
 type parsed_pkt = {src : int; dst : int; payload : bytes}
