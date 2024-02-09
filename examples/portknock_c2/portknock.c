@@ -82,6 +82,13 @@ void print_tcp_pkt(const u_char *pkt, int len);
     &((state_type *)state_name)[index]
 
 
+// there are globals for the current packet and its length 
+// an atom may modify cur_pkt as they please, but
+// should not modify pkt_len...
+// TODO: would this work in ebpf?
+const u_char *pkt;
+uint32_t pkt_len;
+
 /*** user/compiler written code ***/
 
 // atom structures
@@ -95,7 +102,7 @@ typedef struct flow_key_t {
 
 
 // parse extracts the 
-flow_key_t parse(const u_char *pkt, uint32_t pkt_len) {
+flow_key_t parse() {
     flow_key_t rv = {0};
     // exit if packet is too small
     if (pkt_len < sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct tcphdr)) {
@@ -118,6 +125,7 @@ flow_key_t parse(const u_char *pkt, uint32_t pkt_len) {
     rv.src_port = ntohs(tcp->source);
     rv.dst_port = ntohs(tcp->dest);
     rv.valid = 1;
+    return rv;
 }
 
 // state transition atom
@@ -143,7 +151,7 @@ typedef struct array_elem {
 } array_elem;
 
 CREATE_STATE(port_states, array_elem, 1024);
-update_result_t update(const u_char *pkt, flow_key_t fk) {
+update_result_t update(flow_key_t fk) {
     update_result_t rv  = {0};
     // get pointer to current state for the port    
     array_elem *value = GET_STATE(port_states, array_elem, 0);
@@ -172,7 +180,7 @@ typedef enum {
   PASS
 } decision_t;
 
-decision_t action(const u_char *pkt, uint32_t pkt_len, update_result_t res) {
+decision_t action(update_result_t res) {
     // swap ethernet addresses
     if (pkt_len < sizeof(struct ether_header)) {
         return DROP;
@@ -191,13 +199,16 @@ decision_t action(const u_char *pkt, uint32_t pkt_len, update_result_t res) {
 
 /* packet handling function. just a chain of functions */
 void handle_packet(struct pcap_pkthdr *header, const u_char *packet) {
+    // set global packet and length
+    pkt = packet;
+    pkt_len = header->len;
     printf ("---initial packet---\n");
     print_tcp_pkt(packet, header->len);
-    flow_key_t parse_out = parse(packet, header->len);
+    flow_key_t parse_out = parse();
     if (!parse_out.valid) {return;}
-    update_result_t update_out = update(packet, parse_out);
+    update_result_t update_out = update(parse_out);
     if (!update_out.valid) {return;}
-    decision_t action_out = action(packet, header->len, update_out);
+    decision_t action_out = action(update_out);
     printf("final packet---\n");
     print_tcp_pkt(packet, header->len);
     printf("final state: %d\n", update_out.final_state);
