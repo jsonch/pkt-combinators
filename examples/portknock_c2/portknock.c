@@ -2,36 +2,8 @@
     compile: gcc -Wall -g -o portknock portknock.c -lpcap
     run: ./portknock <pcap file> 
 
-    This program is a demonstration of how to write a simple 
-    stateful firewall as a pipeline of packet-processing atoms.
-
-    An atom (e.g., "parse", "update", and "action") is a combination of 
-    a packet processing function with a fixed type signature, 
-    and a global state variable that only the atom can access.
-
-    Each atom has the same type ("atom"): it takes a pointer to a packet 
-    buffer and a pointer to a metadata struct, and returns a
-    flag indicating whether to continue processing the packet.
-
-    The programmer (or code generator) defines the metadata 
-    struct and the atoms.
-
-    There is a single packet handler function ("handler") that, 
-    for each packet: 
-    1. initializes an empty metadata struct
-    2. calls each atom in sequence, passing in the packet buffer
-       and the metadata struct
-    3. if any atom returns a "stop" flag, the packet handler 
-       returns immediately. (Note that, the packet handler 
-       probably should return the same flag as the last atom
-       to execute; TODO.)
-
-    The packet handler function is user-written, but it is 
-    very simple and should be easy to auto-generate. 
-
-    The packet handler function is just called in a packet 
-    rx loop from main.
-    
+    portknock_c with atoms with value args / returns 
+    instead of pointers.
 */
 
 
@@ -97,20 +69,6 @@ struct tcphdr {
 struct metadata; 
 
 
-/* computation must happen inside of "atom" functions, 
-   which takes 
-   a pointer to a packet buffer, and a pointer to a metadata. 
-   return of 0 indicates success, 1 indicates failure. */
-typedef enum { STOP = 0, CONTINUE = 1 } atom_ret;
-typedef atom_ret (*atom)(const u_char *, struct metadata *); 
-
-/* the program must call "CHECK_ATOM" on each atom, to make sure
-   its of the correct type. "CHECK_ATOM" is just a noop, but 
-   if the atom is of the wrong type, the c compiler will complain.*/
-#define CHECK_ATOM(atom_name) atom atom_name##_checked = atom_name
-
-
-
 /*** static library functions ***/
 int main(int argc, char *argv[]);
 void handle_packet(struct pcap_pkthdr *header, const u_char *packet);
@@ -124,152 +82,137 @@ void print_tcp_pkt(const u_char *pkt, int len);
     &((state_type *)state_name)[index]
 
 
+// there are globals for the current packet and its length 
+// an atom may modify cur_pkt as they please, but
+// should not modify pkt_len...
+// TODO: would this work in ebpf?
+const u_char *pkt;
+uint32_t pkt_len;
+
 /*** user/compiler written code ***/
 
-// the metadata struct
-typedef struct metadata {
-    uint32_t pkt_len;
+// atom structures
+typedef struct flow_key_t {
+    uint8_t  valid; // does every atom io type have to have a valid field? If not, how do we handle errors? 
     uint32_t src_ip;
     uint32_t dst_ip;
     uint16_t src_port;
     uint16_t dst_port;
-    uint32_t cur_state;
-} metadata;
+} flow_key_t;
 
-// atoms can be "stateless", like parse, in which 
-// case they don't access any global state.
-atom_ret parse(const u_char *pkt, metadata *m) {
+
+// parse extracts the 
+flow_key_t parse() {
+    flow_key_t rv = {0};
     // exit if packet is too small
-    if (m->pkt_len < sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct tcphdr)) {
-        return STOP; 
+    if (pkt_len < sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct tcphdr)) {
+        return rv;
     }
     struct ether_header *eth = (struct ether_header *)pkt;
     // exit if packet is not IP
     if (eth->ether_type != htons(ETH_P_IP)) {
-        return STOP;
+        return rv;
     }
     struct iphdr *ip = (struct iphdr *)(pkt + sizeof(struct ether_header));
     // exit if packet is not TCP
     if (ip->protocol != IPPROTO_TCP) {
-        return STOP;
+        return rv;
     }
     struct tcphdr *tcp = (struct tcphdr *)(pkt + sizeof(struct ether_header) + sizeof(struct iphdr));
     // parsing success -- fill in metadata
-    m->src_ip = ip->saddr;
-    m->dst_ip = ip->daddr;
-    m->src_port = ntohs(tcp->source);
-    m->dst_port = ntohs(tcp->dest);
-    return CONTINUE;
+    rv.src_ip = ip->saddr;
+    rv.dst_ip = ip->daddr;
+    rv.src_port = ntohs(tcp->source);
+    rv.dst_port = ntohs(tcp->dest);
+    rv.valid = 1;
+    return rv;
 }
-// check the atom's type signature.
-CHECK_ATOM(parse);
-
 
 // state transition atom
-enum state {
+typedef enum {
   CLOSED_0 = 0,
   CLOSED_1,
   CLOSED_2,
   OPEN,
-};
+} state_t;
 #define PORT_1 100
 #define PORT_2 101
 #define PORT_3 102
 
-// an atom can be "stateful", like update_state, which 
-// accesses a pointer to global state that only the 
-// atom can access.
+typedef struct {
+    uint8_t valid; 
+    state_t final_state;   
+} update_result_t;
+
+
+// state for update
 typedef struct array_elem {
     uint32_t state;
 } array_elem;
+
 CREATE_STATE(port_states, array_elem, 1024);
-atom_ret update(const u_char *pkt, metadata *m) {
-    // get pointer to current state for the port
+update_result_t update(flow_key_t fk) {
+    update_result_t rv  = {0};
+    // get pointer to current state for the port    
     array_elem *value = GET_STATE(port_states, array_elem, 0);
-    if (!value) {return STOP;} // null pointer -- stop processing.
+    if (!value) {return rv;} // null pointer -- stop processing.
     // update the state
     if (value->state == OPEN) {
         // no update necessary
-    } else if (value->state == CLOSED_0 && m->dst_port == PORT_1) {
+    } else if (value->state == CLOSED_0 && fk.dst_port == PORT_1) {
         value->state = CLOSED_1;
-    } else if (value->state == CLOSED_1 && m->dst_port == PORT_2) {
+    } else if (value->state == CLOSED_1 && fk.dst_port == PORT_2) {
         value->state = CLOSED_2;
-    } else if (value->state == CLOSED_2 && m->dst_port == PORT_3) {
+    } else if (value->state == CLOSED_2 && fk.dst_port == PORT_3) {
         value->state = OPEN;
     } else {
         value->state = CLOSED_0;
     }
     // fill in the metadata field for cur_state
-    m->cur_state = value->state;
-    return CONTINUE;        
+    rv.valid = 1;
+    rv.final_state = value->state;
+    return rv;        
 }
-CHECK_ATOM(update);
 
 // action atom -- swap ethernet addresses
-atom_ret action(const u_char *pkt, metadata *m) {
+typedef enum {
+  DROP = 0,
+  PASS
+} decision_t;
+
+decision_t action(update_result_t res) {
     // swap ethernet addresses
-    if (m->pkt_len < sizeof(struct ether_header)) {
-        return STOP;
+    if (pkt_len < sizeof(struct ether_header)) {
+        return DROP;
     }
     struct ether_header *eth = (struct ether_header *)pkt;
-    uint8_t tmp[6];
-    memcpy(tmp, eth->ether_shost, 6);
-    memcpy(eth->ether_shost, eth->ether_dhost, 6);
-    memcpy(eth->ether_dhost, tmp, 6);
-    return CONTINUE;
+    // only swap if final state is OPEN
+    if (res.final_state == OPEN) {
+        uint8_t tmp[6];
+        memcpy(tmp, eth->ether_shost, 6);
+        memcpy(eth->ether_shost, eth->ether_dhost, 6);
+        memcpy(eth->ether_dhost, tmp, 6);
+    }
+    return PASS;
 }
 
 
-// helpers
-void metadata_to_string(struct metadata *m, char *buf) {
-    char *src_ip_str = malloc(16); ip_to_string(m->src_ip, src_ip_str);
-    char *dst_ip_str = malloc(16); ip_to_string(m->dst_ip, dst_ip_str);
-    sprintf(buf, "src_ip: %s, dst_ip: %s, src_port: %d, dst_port: %d, pkt_len: %d cur_state: %d", src_ip_str, dst_ip_str, m->src_port, m->dst_port, m->pkt_len, m->cur_state);
-    free(src_ip_str); free(dst_ip_str);
-}
-void print_metadata(struct metadata *m) {
-    char strbuf[128];
-    metadata_to_string(m, strbuf);
-    printf("%s\n", strbuf);
-}
-
-
-
-/* structure of handler 
-
-1. parse function: 
-    parse packet, return metadata struct that contains: 
-    - src ip, dst ip, src port, dst port, and "continue" field
-    - "continue" field is a boolean that indicates whether to continue processing the packet
-      - it is set to false if any errors occur while processing the packet
-2. state function: 
-    take metadata struct and use it to update a state machine
-    if the state machine ends up in the OPEN state, set continue to true, else false
-3. action function:
-    swap source and destination addresses in original packet (if continue is set to true)
-*/
-
-/* packet handling function. User-written, but barely. */
+/* packet handling function. just a chain of functions */
 void handle_packet(struct pcap_pkthdr *header, const u_char *packet) {
+    // set global packet and length
+    pkt = packet;
+    pkt_len = header->len;
     printf ("---initial packet---\n");
     print_tcp_pkt(packet, header->len);
-    // allocate packet-local metadata
-    metadata m = {0}; m.pkt_len = header->len;
-    // parse the packet
-    if (parse(packet, &m) == STOP) {return;}
-    printf("--- parsing success ---\n");
-    // update the state
-    if (update(packet, &m) == STOP) {return;}
-    printf("--- state update success ---\n");
-    // apply the action 
-    if(action(packet, &m) == STOP) {return;}
-    printf("--- action success ---\n");
-    // print the packet buffer
-    printf ("---final packet---\n");
+    flow_key_t parse_out = parse();
+    if (!parse_out.valid) {return;}
+    update_result_t update_out = update(parse_out);
+    if (!update_out.valid) {return;}
+    decision_t action_out = action(update_out);
+    printf("final packet---\n");
     print_tcp_pkt(packet, header->len);
-    printf ("---final metadata---\n");
-    print_metadata(&m);
-
+    printf("final state: %d\n", update_out.final_state);
+    printf("action: %d\n", action_out);
 }
 
 
