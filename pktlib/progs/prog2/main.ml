@@ -1,14 +1,89 @@
 [@@@ocaml.warning "-33"]
 [@@@ocaml.warning "-32"]
 [@@@ocaml.warning "-34"]
-open Pktlib
-open Loc
-open Pipe
-open LocAnalysis
-open Eval
 open Ctypes
 open Foreign
-open Ffi_bindings
+
+(*Open the c library*)
+type packet = unit ptr;;
+let packet = ptr void;;
+type pkt_len = unit ptr;;
+let pkt_len = ptr void;;
+type flow_key_t = unit ptr;;
+let flow_key = ptr void;;
+type update_result = unit ptr;;
+let update_result = ptr void;;
+
+let libknock = Dl.dlopen ~flags:[Dl.RTLD_LAZY] ~filename:"portknock"
+let parse = foreign ~from:libknock "parse" (pkt_len @-> packet @-> returning flow_key)
+let update =  foreign ~from:libknock "update" (flow_key @-> returning update_result)
+let action = foreign ~from:libknock "action" (update_result @-> pkt_len @-> packet @-> returning update_result)
+
+(*let get_handle = foreign ~from:libknock "get_pcap_handle" (Ctypes.string @-> returning pcap_handle)
+let load_next_pcap_pkt = foreign ~from:libknock "load_next_pcap_pkt" (pcap_handle @-> pcap_pkthdr @-> returning (ptr char))
+*)
+module StringMap = Map.Make(String);;
+type atom = 
+{ name : string;
+  inputs : string list;
+  output : string;
+  f : (unit ptr) StringMap.t -> (unit ptr) StringMap.t;
+}
+
+type pipe =
+  Atom: atom -> pipe
+  | Seq : pipe * pipe -> pipe
+
+(*OCaml wrappers for how to call the above functions using the labels
+   I can't figure out how to do this generally...*)
+let get_arguments arguments arg_map : 'a list = List.map (fun arg -> match StringMap.find_opt arg arg_map with
+      | Some(value) -> value
+      | None -> failwith ("Missing argument: " ^ arg)) arguments
+
+
+let aparse = {
+  name = "parse";
+  inputs = ["pkt_len"; "packet"];
+  output = "flow_key";
+  f = fun arg_map -> let args = get_arguments ["pkt_len"; "packet"] arg_map in StringMap.add "flow_key" (parse (List.nth args 0) (List.nth args 1)) arg_map
+}
+
+let aupdate = {
+  name = "update";
+  inputs = ["flow_key"];
+  output = "update_result";
+  f = fun arg_map -> let args = get_arguments ["flow_key"] arg_map in StringMap.add "update_result" (update (List.nth args 0)) arg_map
+}
+
+let aaction = {
+  name = "action";
+  inputs = ["update_result"; "pkt_len"; "packet"];
+  output = "flow_key";
+  f = fun arg_map -> let args = get_arguments ["update_result"; "pkt_len"; "packet"] arg_map in StringMap.add "nothing" (action (List.nth args 0) (List.nth args 1) (List.nth args 2)) arg_map
+}
+
+let p1 = Seq ((Seq (Atom aparse, Atom aupdate)), Atom aaction)
+
+let rec eval pipeline = 
+    match pipeline with 
+    Atom (a) -> a.f
+    | Seq (p1, p2) -> fun m -> eval p2 (eval p1 m) 
+
+
+(*
+let make_handle_packet pipeline = 
+  let handle_packet pkt_len packet = 
+    let labels : (unit ptr) StringMap.t = StringMap.empty in
+    let labels = StringMap.add "packet" packet labels in
+    let labels = StringMap.add "pkt_len" pkt_len labels in
+
+
+;;
+
+
+let pipe1 = 
+  start switch >>> aparse
+;;
 
 (* helper to test a pipeline *)
 let test_pipe name pipe item_printer = 
@@ -17,71 +92,19 @@ let test_pipe name pipe item_printer =
   let start, end_, _ = infer_locations pipe in
   print_endline ("pipe spans from "^(Loc.to_strings start)^" to "^(Loc.to_strings end_));
 
-  let results = exec pipe (Bytes.of_string "abc") in
+  let file = "input.pcap" in
+  let ha = get_handle file in
+  let hdr = make pcap_pkthdr in
+  let p = load_next_pcap_pkt ha hdr in
+
+  let results = exec pipe in
   List.iter (fun (loc, output) -> 
     print_endline ((item_printer output)^" from "^(Loc.to_string loc))) results
 ;;
 
 
 
-(*Open the c library*)
-let libknock = Dl.dlopen ~flags:[Dl.RTLD_LAZY] ~filename:"portknock"
-let parse = foreign ~from:libknock "parse" (state @->  (ptr void) @-> (ptr metadata) @-> returning atom_ret)
-
-let aparse = atom "parse" (fun (s, pkt, m) -> parse s pkt m)
-
-(* packet types *)
-type unparsed_pkt = bytes
-type parsed_pkt = {src : int; dst : int; payload : bytes}
-let pipe1 = 
-  start switch >>> aparse
-;;
-
-(*
-(* packet print helpers *)
-let parsed_pkt_to_string pkt = 
-  "{src: "^(string_of_int pkt.src)^", dst: "^(string_of_int pkt.dst)^", payload: "^(Bytes.to_string pkt.payload)^"}"
-;;
-
-
-(* parse on switch, move to nic, duplicate packet and round robin to cores 1 and 2, 
-   run swap_addr on both cores with shared state *)
-let pipe1 = 
-  start switch >>> parse
-  >>> const_move nic 
-  >>> copy 2 >>> round_robin_2 >>> shard (cores [1; 2]) 
-  >>> parallel_shared (cores [1; 2]) swap_addrs 
-;;
-
-(* this pipe will fail because we don't run anything on core2 *)
-let pipe2 = 
-  start switch >>> parse
-  >>> const_move nic 
-  >>> copy 2 >>> round_robin_2 >>> shard (cores [1; 2]) 
-  >>> (at (core 1) swap_addrs) 
-;;
-
-(* this pipe runs swap_addrs on core1 and random_addrs on core2 *)
-let pipe3 = 
-  start switch >>> parse
-  >>> const_move nic 
-  >>> copy 2 >>> round_robin_2 >>> shard (cores [1; 2]) 
-  >>> ((at (core 1) swap_addrs) ||| (at (core 2) random_addrs))
-;;
-*)
-
-let main () = 
-  test_pipe "pipe1" pipe1 parsed_pkt_to_string;
-  (*try 
-    test_pipe "pipe2" pipe2 parsed_pkt_to_string
-  with
-    | Failure(msg) -> 
-      print_endline "pipe2 failed";
-      print_endline msg;
-  test_pipe "pipe3" pipe3 parsed_pkt_to_string;*)
-  ()
-;;
 
 
 
-main ();;
+main ();;*)
