@@ -71,7 +71,7 @@ struct metadata;
 
 /*** static library functions ***/
 int main(int argc, char *argv[]);
-void handle_packet(struct pcap_pkthdr *header, const u_char *packet);
+void handle_packet(uint32_t *len, const u_char *packet);
 void ip_to_string(uint32_t ip, char *buf);
 void print_tcp_pkt(const u_char *pkt, int len);
 
@@ -86,8 +86,7 @@ void print_tcp_pkt(const u_char *pkt, int len);
 // an atom may modify cur_pkt as they please, but
 // should not modify pkt_len...
 // TODO: would this work in ebpf?
-const u_char *pkt;
-uint32_t pkt_len;
+
 
 /*** user/compiler written code ***/
 
@@ -102,10 +101,10 @@ typedef struct flow_key_t {
 
 
 // parse extracts the 
-flow_key_t parse() {
-    flow_key_t rv = {0};
+flow_key_t* parse(void* state, uint32_t *pkt_len, const u_char *pkt) {
+    flow_key_t* rv = malloc(sizeof(flow_key_t));
     // exit if packet is too small
-    if (pkt_len < sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct tcphdr)) {
+    if ((*pkt_len) < sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct tcphdr)) {
         return rv;
     }
     struct ether_header *eth = (struct ether_header *)pkt;
@@ -120,11 +119,11 @@ flow_key_t parse() {
     }
     struct tcphdr *tcp = (struct tcphdr *)(pkt + sizeof(struct ether_header) + sizeof(struct iphdr));
     // parsing success -- fill in metadata
-    rv.src_ip = ip->saddr;
-    rv.dst_ip = ip->daddr;
-    rv.src_port = ntohs(tcp->source);
-    rv.dst_port = ntohs(tcp->dest);
-    rv.valid = 1;
+    rv->src_ip = ip->saddr;
+    rv->dst_ip = ip->daddr;
+    rv->src_port = ntohs(tcp->source);
+    rv->dst_port = ntohs(tcp->dest);
+    rv->valid = 1;
     return rv;
 }
 
@@ -150,28 +149,34 @@ typedef struct array_elem {
     uint32_t state;
 } array_elem;
 
-CREATE_STATE(port_states, array_elem, 1024);
-update_result_t update(flow_key_t fk) {
-    update_result_t rv  = {0};
+
+array_elem* update_state_init() {
+    array_elem* state = malloc(1024 * sizeof(array_elem));
+    return state;
+}
+update_result_t* update(array_elem *state, flow_key_t *fk) {
+    update_result_t* rv  = malloc(sizeof(update_result_t));
+    flow_key_t k = *fk;
     // get pointer to current state for the port    
-    array_elem *value = GET_STATE(port_states, array_elem, 0);
+    array_elem *value = &((array_elem *)state)[0];
+    
     if (!value) {return rv;} // null pointer -- stop processing.
     // update the state
     if (value->state == OPEN) {
         // no update necessary
-    } else if (value->state == CLOSED_0 && fk.dst_port == PORT_1) {
+    } else if (value->state == CLOSED_0 && k.dst_port == PORT_1) {
         value->state = CLOSED_1;
-    } else if (value->state == CLOSED_1 && fk.dst_port == PORT_2) {
+    } else if (value->state == CLOSED_1 && k.dst_port == PORT_2) {
         value->state = CLOSED_2;
-    } else if (value->state == CLOSED_2 && fk.dst_port == PORT_3) {
+    } else if (value->state == CLOSED_2 && k.dst_port == PORT_3) {
         value->state = OPEN;
     } else {
         value->state = CLOSED_0;
     }
     // fill in the metadata field for cur_state
-    rv.valid = 1;
-    rv.final_state = value->state;
-    return rv;        
+    rv->valid = 1;
+    rv->final_state = value->state;
+    return rv;
 }
 
 // action atom -- swap ethernet addresses
@@ -180,39 +185,41 @@ typedef enum {
   PASS
 } decision_t;
 
-decision_t action(update_result_t res) {
+decision_t* action(void* state, update_result_t *res, uint32_t *pkt_len, const u_char *pkt) {
     // swap ethernet addresses
-    if (pkt_len < sizeof(struct ether_header)) {
-        return DROP;
+    decision_t* rv = malloc(sizeof(decision_t));
+    if ((*pkt_len) < sizeof(struct ether_header)) {
+        *rv = DROP;
+        return rv;
     }
     struct ether_header *eth = (struct ether_header *)pkt;
     // only swap if final state is OPEN
-    if (res.final_state == OPEN) {
+    if ((*res).final_state == OPEN) {
         uint8_t tmp[6];
         memcpy(tmp, eth->ether_shost, 6);
         memcpy(eth->ether_shost, eth->ether_dhost, 6);
         memcpy(eth->ether_dhost, tmp, 6);
     }
-    return PASS;
+    *rv = PASS;
+    return rv;
 }
 
 
 /* packet handling function. just a chain of functions */
-void handle_packet(struct pcap_pkthdr *header, const u_char *packet) {
+void handle_packet(uint32_t *len, const u_char *packet) {
+    int nonce_state = 0;
     // set global packet and length
-    pkt = packet;
-    pkt_len = header->len;
     printf ("---initial packet---\n");
-    print_tcp_pkt(packet, header->len);
-    flow_key_t parse_out = parse();
-    if (!parse_out.valid) {return;}
-    update_result_t update_out = update(parse_out);
-    if (!update_out.valid) {return;}
-    decision_t action_out = action(update_out);
+    print_tcp_pkt(packet, (*len));
+    flow_key_t *parse_out = parse(&nonce_state, len, packet);
+    if (!(*parse_out).valid) {return;}
+    update_result_t* update_out = update(update_state_init(), parse_out);
+    if (!(*update_out).valid) {return;}
+    decision_t* action_out = action(&nonce_state, update_out, len, packet);
     printf("final packet---\n");
-    print_tcp_pkt(packet, header->len);
-    printf("final state: %d\n", update_out.final_state);
-    printf("action: %d\n", action_out);
+    print_tcp_pkt(packet, (*len));
+    printf("final state: %d\n", (*update_out).final_state);
+    printf("action: %d\n", (*action_out));
 }
 
 
@@ -224,6 +231,9 @@ void ip_to_string(uint32_t ip, char *buf) {
     sprintf(buf, "%s", ip_str);
 }
 
+int test_func(int a, int b) {
+    return a + b;
+}
 // print the ethernet addresses, ip addresses, and ports of a tcp packet
 void print_tcp_pkt(const u_char *pkt, int len) {
     struct ether_header *eth = (struct ether_header *)pkt;
@@ -238,10 +248,8 @@ void print_tcp_pkt(const u_char *pkt, int len) {
     free(src_ip_str); free(dst_ip_str);
 }
 
-
-
-/* main loop -- open pcap, read files */
-int main(int argc, char *argv[]) {
+int run(int argc, char *argv[], void handler(uint32_t *len, const u_char *pkt)) {
+    printf("CALLED RUN");
     if (argc != 2) {
         printf("Usage: %s <filename>\n", argv[0]);
         return 1;
@@ -258,9 +266,15 @@ int main(int argc, char *argv[]) {
     const u_char *packet;
 
     while ((packet = pcap_next(handle, &header)) != NULL) {
-        handle_packet(&header, packet);
+        handler(&(header.len), packet);
     }
 
     pcap_close(handle);
     return 0;
+}
+
+/* main loop -- open pcap, read files */
+int main(int argc, char *argv[]) {
+    printf("CALLED Main");
+    return run(argc, argv, &handle_packet);
 }

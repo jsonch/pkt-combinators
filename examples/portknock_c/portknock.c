@@ -295,7 +295,18 @@ void print_tcp_pkt(const u_char *pkt, int len) {
     free(src_ip_str); free(dst_ip_str);
 }
 
+pcap_t* get_pcap_handle(char arg) {
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t *handle = pcap_open_offline(arg, errbuf);
+    if (handle == NULL) {
+        printf("Couldn't open pcap file %s: %s\n", arg, errbuf);
+        return handle;
+    }
+}
 
+const u_char* load_next_pcap_pkt(pcap_t *handle, struct pcap_pkthdr header) {
+    return pcap_next(handle, &header);
+}
 
 /* main loop -- open pcap, read files */
 int main(int argc, char *argv[]) {

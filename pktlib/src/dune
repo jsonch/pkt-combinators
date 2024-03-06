@@ -4,6 +4,5 @@
  (modules 
    Syntax 
    Loc 
-   Pipe
-   LocAnalysis 
+   Pipe 
    Eval))

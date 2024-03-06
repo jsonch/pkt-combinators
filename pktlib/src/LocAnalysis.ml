@@ -1,9 +1,10 @@
+(*GOING TO LEAVE THIS BROKEN FOR NOW*)
 (* analyze pipe locations *)
 
 open Syntax
 
 (* a pipeline that has start and end locations attached to it *)
-type ('x, 'y) located_pipe = ((locset * locset), 'x, 'y) annotated_pipe
+type ('i) located_pipe = ((locset * locset), 'i) annotated_pipe
 
 (* a set of locations *)
 
@@ -186,7 +187,7 @@ let rec get_mappings equiv_sets =
       List.map (fun unknown -> (unknown, core)) unknowns @ get_mappings tl
 ;;
 
-let replace_loc (pipe : (_, 'x, 'y) annotated_pipe) loc_mappings loc = 
+let replace_loc (pipe : (_, 'i) annotated_pipe) loc_mappings loc = 
   match loc with
   | Loc.Unbound _ -> (
     match List.assoc_opt loc loc_mappings with 
@@ -209,7 +210,7 @@ let rec update_locs : type x y. (loc * loc) list -> (x, y) located_pipe -> (x, y
     | Locate((s, d), locs) -> Locate((rlocs s, rlocs d), locs)
 ;;
 
-let infer_locations (pipe : ('x, 'y) pipe) = 
+let infer_locations (pipe : ('i) pipe) = 
   let pipe = Syntax.to_unit_pipe pipe in
   (* convert into a located pipe *)
   let located_pipe = pipe_to_located_pipe pipe in

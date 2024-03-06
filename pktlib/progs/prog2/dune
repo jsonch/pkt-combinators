@@ -1,4 +1,6 @@
+(env
+  (dev
+    (flags (:standard -w -34))))
 (executable
  (name main)
- (libraries unix pktlib ctypes-foreign)
- )
+ (libraries unix pktlib ctypes-foreign))

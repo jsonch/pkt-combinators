@@ -1,30 +1,41 @@
 open Syntax
+open Pipe
 
 type 'x located = Loc.t * 'x
-let rec eval : type x y. (_, x , y) annotated_pipe -> x located list -> (y located list) = 
-  fun pipe located_xs ->
+
+
+let rec setup : type i. (_, i) annotated_pipe -> (_, i) instantiated_pipe = 
+  fun pipe -> 
     match pipe with
-    | Atom(_, atom) -> 
-      List.map (fun (loc, x) -> (loc, atom.f x)) located_xs
-    | Copy(_, n) -> 
-      List.init n (fun _ -> List.hd located_xs)
-    | Locate(_) -> located_xs
-    | Share(_) -> located_xs    
-    | Move(_, _) -> 
-      List.map (fun (_, (x, dst)) -> (dst, (x))) located_xs
-    | Sequence(_, p1, p2) -> 
-      let located_ys = eval p1 located_xs in
-      eval p2 located_ys
-    | Parallel(_, p1, p2) -> 
-      (* choose p1 if the location of x is in p1 *)
-      let p1_starts, _, _ = LocAnalysis.infer_locations (Syntax.from_unit_pipe p1) in
-      List.fold_left 
-      (fun ys (loc, x) -> 
-        let pipe = if List.mem loc p1_starts then p1 else p2 in
-        ys@(eval pipe [(loc, x)]))
-      []
-      located_xs
-  ;;
+    | Atom (_, a, args) -> Atom ((), (instantiate a (a.state_init ())), args)
+    | Let (_, a, args, ret, p) -> Let ((), (instantiate a (a.state_init ())), args, ret, setup p)
+    | Copy (_, _) -> failwith "Unimplemented"
+    | Locate (_, locs, p) -> Locate((), locs, setup(p))
+    | Move _ -> failwith "Unimplemented"
+    | Share _ -> failwith "Ambiguous, unimplemented, use the shared atom generator."
+    | Sequence (_, p1, p2) -> Sequence ((), (setup p1), (setup p2))
+    | Parallel (_, p1, p2) -> Parallel ((), (setup p1), (setup p2))
+
+(*Only call this with an instantiated pipe!*)
+(*Also totally ignores location stuff...*)
+let eval : type i. (_, i) instantiated_pipe -> i -> i -> i = 
+  fun pipe pkt_len input_packet ->
+    let rec eval_acc pipe (ctx : i ArgMap.t) = 
+      match pipe with 
+      | Atom (_, a, args) -> a.f () args ctx
+      | Let (_, a, args, ret, p) -> let ctx' = ArgMap.add ret (a.f () args ctx) ctx in eval_acc p ctx'
+      | Copy (_, _) -> failwith "Unimplemented"
+      | Locate (_, _, p) -> eval_acc p ctx
+      | Move _ -> failwith "Unimplemented"
+      | Share _ -> failwith "Ambiguous, unimplemented, use the shared atom generator."
+      | Sequence (_, p1, p2) -> let ctx' = ArgMap.add "packet" (eval_acc p1 ctx) ctx in eval_acc p2 ctx'
+      | Parallel (_, p1, p2) -> let _ = eval_acc p1 ctx in eval_acc p2 ctx
+    in
+    let ctx = ArgMap.empty in
+    let ctx = ArgMap.add "packet" input_packet ctx in
+    let ctx = ArgMap.add "pkt_len" pkt_len ctx in
+    eval_acc pipe ctx
+
 
   let run_from start pipe inp = 
     let outputs = eval pipe  [start, inp] in
