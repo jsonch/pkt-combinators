@@ -75,10 +75,10 @@ p2 := (p1 @ c1) ||| (p1 @ c2)
 *)
 
 (*shared_atom a : unit -> a*)
-let shared_update = shared_atom "update" 2 update_state_init (fun s args arg_map -> (let args = get_arguments args arg_map in update s (List.nth args 0))) ["flow_key"]
-let p_shared_update_1 = let_atom ((shared_update ())) "update_result" aaction
-let p_shared_update_2 = let_atom (shared_update ()) "update_result" aaction
-let aparse = let_atom "parse" 3 (fun _ -> ()) (fun s args arg_map -> (let args = get_arguments args arg_map in parse s (List.nth args 0) (List.nth args 1))) ["pkt_len"; "packet"] "flow_key" (p_shared_update_1 ||| p_shared_update_2)
+let shared_update = shared_atom aupdate
+let p_shared_update_1 = let_pipe "update_result" (shared_update ()) aaction
+let p_shared_update_2 = let_pipe "update_result" (shared_update ()) aaction
+let p_parallel = let_pipe "flow_key" aparse (p_shared_update_1 ||| p_shared_update_2)
 
 
 (*
