@@ -21,7 +21,7 @@ type ('i) instantiated_atom = (unit, 'i) atom
 (*Atoms return values. Pipe's don't have to?*)
 type ('a, 'i) annotated_pipe = 
   | Atom        : 'a * (_, 'i) atom * arg list -> ('a, 'i) annotated_pipe (* construct an atomic pipeline *)
-  | Let         : 'a * (_, 'i) atom * arg list * arg * (('a, 'i) annotated_pipe) -> ('a, 'i) annotated_pipe (*let x = atom ( args) in pipe*)
+  | Let         : 'a * arg * (('a, 'i) annotated_pipe) * (('a, 'i) annotated_pipe) -> ('a, 'i) annotated_pipe (*let x = p1 in p2*)
   | Copy        : 'a * int -> ('a, 'i) annotated_pipe (* make n copies of the packet *)
   | Locate      : 'a * locset  * ('a, 'i) annotated_pipe -> ('a, 'i) annotated_pipe (* start a pipeline at a location *)
   | Move        : 'a * locset -> ('a, 'i) annotated_pipe (* move each packet to a location *)

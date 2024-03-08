@@ -37,13 +37,48 @@ let get_arguments arguments arg_map = List.map (fun arg -> match StringMap.find_
 
 
 
+(*Pipe1*)
+(*action*)
+let aaction = atom "action" 4 (fun _ -> ()) (fun s args arg_map -> (let args = get_arguments args arg_map in action s (List.nth args 0) (List.nth args 1) (List.nth args 2))) 
+(*action(update_result, pkt_len, packet)*)
+let paction = atom_pipe aaction ["update_result"; "pkt_len"; "packet"]
 
-let aaction = atom "action" 4 (fun _ -> ()) (fun s args arg_map -> (let args = get_arguments args arg_map in action s (List.nth args 0) (List.nth args 1) (List.nth args 2))) ["update_result"; "pkt_len"; "packet"]
-let aupdate = let_atom "update" 2 update_state_init (fun s args arg_map -> (let args = get_arguments args arg_map in update s (List.nth args 0))) ["flow_key"] "update_result" aaction
-(*let flow_key = aparse(pkt_len, packet) in 
-    let update_result = update(flow_key) in
-      aaction (update_result, pkt_len, packet)*)
-let aparse = let_atom "parse" 3 (fun _ -> ()) (fun s args arg_map -> (let args = get_arguments args arg_map in parse s (List.nth args 0) (List.nth args 1))) ["pkt_len"; "packet"] "flow_key" aupdate
+(*update*)
+let aupdate = atom "update" 2 update_state_init (fun s args arg_map -> (let args = get_arguments args arg_map in update s (List.nth args 0)))
+(*update(flow_key)*)
+let pupdate = atom_pipe aupdate ["flow_key"]
+(*let update_result = update(flow_key) in action(update_result, pkt_len, packet)*)
+let p_combined = let_pipe "update_result" pupdate paction
+
+(*parse*)
+let aparse = atom "parse" 3 (fun _ -> ()) (fun s args arg_map -> (let args = get_arguments args arg_map in parse s (List.nth args 0) (List.nth args 1)))
+(*parse(pkt_len, packet)*)
+let pparse = atom_pipe aparse  ["pkt_len"; "packet"]
+(*let flow_key = parse(pkt_len, packet) in [...above...]*)
+let p_combined_2 = let_pipe "flow_key" p_combined
+
+
+
+(*Pipe2*)
+(* Shared update state
+pipe update_s := shared(update);
+pipe p1 := (let flow_key = parse(pkt_len, packet) in
+  let update_result = update_s(flow_key) in
+    action(update_result, pkt_len, packet));
+p2 := (p1 @ c1) ||| (p1 @ c2)
+
+  Is different from 
+p1 := (let flow_key = aparse(pkt_len, packet) in 
+  let update_result = update(flow_key) in
+    aaction(update_result, pkt_len, packet));
+p2 := (p1 @ c1) ||| (p1 @ c2)
+*)
+
+(*shared_atom a : unit -> a*)
+let shared_update = shared_atom "update" 2 update_state_init (fun s args arg_map -> (let args = get_arguments args arg_map in update s (List.nth args 0))) ["flow_key"]
+let p_shared_update_1 = let_atom ((shared_update ())) "update_result" aaction
+let p_shared_update_2 = let_atom (shared_update ()) "update_result" aaction
+let aparse = let_atom "parse" 3 (fun _ -> ()) (fun s args arg_map -> (let args = get_arguments args arg_map in parse s (List.nth args 0) (List.nth args 1))) ["pkt_len"; "packet"] "flow_key" (p_shared_update_1 ||| p_shared_update_2)
 
 
 (*

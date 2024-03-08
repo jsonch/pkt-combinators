@@ -8,8 +8,9 @@ type args = Syntax.args
 (** [id] creates an identity pipe. *)
 
 (** [atom name f] creates an atomic pipe with the given name and function. *)
-val atom : string -> int -> (unit -> 's) -> ('s -> args -> 'i ArgMap.t -> 'i) -> args -> ('i) pipe
-val let_atom : string -> int -> (unit -> 's) -> ('s -> args -> 'i ArgMap.t -> 'i) -> args -> arg -> ('i) pipe -> ('i) pipe
+val atom : (string -> int -> (unit -> 's) -> ('s -> args -> 'i ArgMap.t -> 'i) -> ('s, 'i) atom)
+val atom_pipe :  (('s, 'i) atom -> args -> ('i) pipe)
+val let_pipe : (arg -> ('i) pipe -> ('i) pipe -> ('i) pipe) (*let x = p1 in p2*)
 val instantiate : ('s, 'i) atom -> 's -> ('i instantiated_atom)
 val shared_atom : ('s, 'i) atom -> (unit -> ('i instantiated_atom))
 
