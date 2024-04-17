@@ -9,33 +9,32 @@ type ('i) pipe = ('i) Syntax.pipe
 type arg = Syntax.arg
 type args = Syntax.args
 
-let instantiate (a : ('s, 'i) atom) (state : 's) : 'i instantiated_atom = 
+let instantiate (a : ('s, 'i) atom) (state : 's) : (unit, 'i) atom = 
   {
     name = a.name;
     arity = a.arity;
     f = (fun _ arguments map -> (a.f state arguments map));
     state_init = (fun _ -> ());
   }
-
+(*Atom type*)
 let shared_atom a = 
   let the_state_instance = a.state_init () in
   (fun _ -> instantiate a the_state_instance);;
 (*** primitive combinators ***)
 
+let atom : (string -> int -> (unit -> 's) -> ('s -> args -> 'i ArgMap.t -> 'i) -> ('s, 'i) atom) = 
+  fun name arity state_init f -> 
+  {
+  name = name;
+  arity = arity;
+  f = f;
+  state_init = state_creator;
+  };
 
-let atom : (string -> int -> (unit -> 's) -> ('s -> args -> 'i ArgMap.t -> 'i) -> args -> ('i) pipe) = 
-fun name arity state_creator f args -> let a = {
-  name = name;
-  arity = arity;
-  f = f;
-  state_init = state_creator;
-} in Atom ((), a, args)
-let let_atom : (string -> int -> (unit -> 's) -> ('s -> args -> 'i ArgMap.t -> 'i) -> args -> arg -> ('i) pipe -> ('i) pipe) = fun name arity state_creator f args ret_key sub_pipe -> let a = {
-  name = name;
-  arity = arity;
-  f = f;
-  state_init = state_creator;
-} in  Let ((), a, args, ret_key, sub_pipe)
+let atom_pipe : (('s, 'i) atom -> args -> ('i) pipe) = 
+  fun a args -> Atom((), a, args)
+fun name arity state_creator f args -> let a =  in Atom ((), a, args)
+let let_pipe : (arg -> ('i) pipe -> ('i) pipe -> ('i) pipe) = fun arg p1 sub_pipe -> Let ((), arg, p1, sub_pipe)
 let copy n : ('i) pipe = Copy((), n)
 let move locs : ('i) pipe = Move((), locs)
 let sequence p1 p2 : ('i) pipe = Sequence((), p1, p2)

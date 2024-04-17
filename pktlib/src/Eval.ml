@@ -8,9 +8,9 @@ let rec setup : type i. (_, i) annotated_pipe -> (_, i) instantiated_pipe =
   fun pipe -> 
     match pipe with
     | Atom (_, a, args) -> Atom ((), (instantiate a (a.state_init ())), args)
-    | Let (_, a, args, ret, p) -> Let ((), (instantiate a (a.state_init ())), args, ret, setup p)
+    | Let (_, a, p1, p2) -> Let ((), a, (setup p1), (setup p2))
     | Copy (_, _) -> failwith "Unimplemented"
-    | Locate (_, locs, p) -> Locate((), locs, setup(p))
+    | Locate (_, locs, p) -> Locate((), locs, (setup p))
     | Move _ -> failwith "Unimplemented"
     | Share _ -> failwith "Ambiguous, unimplemented, use the shared atom generator."
     | Sequence (_, p1, p2) -> Sequence ((), (setup p1), (setup p2))
@@ -23,12 +23,12 @@ let eval : type i. (_, i) instantiated_pipe -> i -> i -> i =
     let rec eval_acc pipe (ctx : i ArgMap.t) = 
       match pipe with 
       | Atom (_, a, args) -> a.f () args ctx
-      | Let (_, a, args, ret, p) -> let ctx' = ArgMap.add ret (a.f () args ctx) ctx in eval_acc p ctx'
+      | Let (_, a, p1, p2) -> let ctx' = ArgMap.add ret (eval_acc p1 ctx) ctx in eval_acc p2 ctx'
       | Copy (_, _) -> failwith "Unimplemented"
       | Locate (_, _, p) -> eval_acc p ctx
       | Move _ -> failwith "Unimplemented"
       | Share _ -> failwith "Ambiguous, unimplemented, use the shared atom generator."
-      | Sequence (_, p1, p2) -> let ctx' = ArgMap.add "packet" (eval_acc p1 ctx) ctx in eval_acc p2 ctx'
+      | Sequence (_, p1, p2) -> let _ = (eval_acc p1 ctx) in eval_acc p2 ctx'
       | Parallel (_, p1, p2) -> let _ = eval_acc p1 ctx in eval_acc p2 ctx
     in
     let ctx = ArgMap.empty in
