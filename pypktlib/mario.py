@@ -280,11 +280,11 @@ def preprocess(src_fn: str):
         src = f.read()
     def repl_python(match):
         code = match.group(1)
-        print(f"Running python code: {code}")
+        # print(f"Running python code: {code}")
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
             exec(code, globals())
-        print(f"Output: {buffer.getvalue()}")
+        # print(f"Output: {buffer.getvalue()}")
         orig_str = "/* PYTHON({"+code+"}) */"
         if buffer.getvalue() == "":
             return orig_str
