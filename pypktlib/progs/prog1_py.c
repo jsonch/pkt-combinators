@@ -53,10 +53,10 @@ void fwd(fwd_state_t* state, char* pkt, parsed_pkt_t* p, counter_ret_t* ct, fwd_
 }
 
 PYTHON({
-p1 =let("parsed_pkt", pipe(parse_atom, []),
-    let("ct", pipe(counter_atom, ["parsed_pkt"]),
-    let("ct", pipe(counter_atom, ["parsed_pkt"]),    
-    pipe(fwd_atom, ["parsed_pkt", "ct"]
+p1 =let("parsed_pkt", do(parse_atom, []),
+    let("ct", do(counter_atom, ["parsed_pkt"]),
+    let("ct", do(counter_atom, ["parsed_pkt"]),    
+    do(fwd_atom, ["parsed_pkt", "ct"]
 ))));
 print(compile("p1", p1))
 })
