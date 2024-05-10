@@ -466,6 +466,7 @@ resources = [
     "Makefile", 
     "dpdk_init.h",
     "pcaprun.sh",
+    "test.pcap",
 ]
 
 def copy_dpdk_resources(base_dir : str):
