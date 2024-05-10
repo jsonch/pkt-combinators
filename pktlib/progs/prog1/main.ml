@@ -19,7 +19,6 @@ let test_pipe name pipe item_printer =
     print_endline ((item_printer output)^" from "^(Loc.to_string loc))) results
 ;;
 
-
 (* packet types *)
 type unparsed_pkt = bytes
 type parsed_pkt = {src : int; dst : int; payload : bytes}
@@ -48,6 +47,11 @@ let round_robin_2 = atom "round_robin_2"
     let next_core = if ctr mod 2 = 0 then core 1 else core 2 in
     (pkt, next_core))
 ;;
+
+let move_alt cores selector = 
+  selector >>> move cores
+;;
+
 let swap_addrs = atom "swap"
   (fun pkt -> 
     {src = pkt.dst; dst = pkt.src; payload = pkt.payload})
