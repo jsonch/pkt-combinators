@@ -1,0 +1,13 @@
+{
+"comments": "generate 3 packets using template p as the base, with tcp.dst values 100, 101, 102",
+"packet_templates" : {
+    "p" : 
+        {"ip.src" : "1.1.1.1", "ip.dst" : "2.2.2.2", "tcp.src" : 1, "tcp.dst": 100, "payload.length" : 256}
+}
+,
+"packets": [
+        {"template":"p", "tcp.dst":100},
+        {"template":"p", "tcp.dst":101},
+        {"template":"p", "tcp.dst":102}
+    ]
+}
