@@ -7,6 +7,8 @@ from lib.syntax import *
 from lib.frontend import *
 from lib.backend import *
 
+from lib.bpf_opt import *
+
 usage = """
 Mario: A packet pipeline compiler
 Usage: mario.py <source.c> [-o <output_dir>]
@@ -21,6 +23,7 @@ which defaults to the name of the source file with "_build" appended.
 def compile_dpdk(pipe:PipeBase):
     pipe_prog = frontend_passes(pipe)
     segment_prog = backend_passes(pipe_prog)
+    transform(segment_prog.segments[1], segment_prog, "c0")
     return irprog_to_dpdkcode(segment_prog)
 
 ### run python in PYTHON blocks of a c file
