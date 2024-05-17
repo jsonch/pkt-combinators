@@ -63,7 +63,7 @@ print_pkt = atom(
 void print_pkt_f(void * nostate, char * pkt, uint16_t* eth_ty, int* counter_val) {
     eth_t* eth = (eth_t*) pkt;
     ip_t* ip = (ip_t*) (pkt + sizeof(eth_t));
-    printf("packet[%i]: dest=%02x:%02x:%02x:%02x:%02x:%02x src=%02x:%02x:%02x:%02x:%02x:%02x type=%04x\n",
+    printf("packet[%i]\nraw eth: dest=%02x:%02x:%02x:%02x:%02x:%02x src=%02x:%02x:%02x:%02x:%02x:%02x type=%04x\n",
         *counter_val,
         eth->dest[0], eth->dest[1], eth->dest[2], eth->dest[3], eth->dest[4], eth->dest[5],
         eth->src[0], eth->src[1], eth->src[2], eth->src[3], eth->src[4], eth->src[5],
