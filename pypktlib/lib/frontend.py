@@ -55,6 +55,13 @@ def rename_vars(renames : dict[str, str], pipe : PipeBase):
             inner_renames = {r: f for r, f in renames.items() if r != ret}
             inner_renames = {**inner_renames, **{ret: fresh_ret}} # add the fresh return name
             return replace (pipe, ret=fresh_ret, left=rename_vars(renames, left), right=rename_vars(inner_renames, right))
+        case Switch(var, cases):
+            if var in renames:
+                new_var = renames[var]
+            else:
+                raise Exception(f"Unbound variable in switch expression {str(var.name)}")
+            new_cases = {k:recurse(recurse_with_renames, pipe) for (k, pipe) in cases.items()}
+            return replace(pipe, var=new_var, cases=new_cases)
         case _: 
             # for all other cases, recurse with the same renames
             return recurse(recurse_with_renames, pipe)

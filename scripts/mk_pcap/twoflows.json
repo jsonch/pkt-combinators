@@ -1,0 +1,14 @@
+{
+"comments": "packets from two different flows",
+"packet_templates" : {
+    "p1" : {"ip.src" : "1.1.1.1", "ip.dst" : "2.2.2.2", "tcp.src" : 1, "tcp.dst": 100, "payload.length" : 256},
+    "p2" : {"ip.src" : "3.3.3.3", "ip.dst" : "4.4.4.4", "tcp.src" : 2, "tcp.dst": 101, "payload.length" : 256}
+}
+,
+"packets": [
+        {"template":"p1"},
+        {"template":"p2"},
+        {"template":"p1"},
+        {"template":"p2"}
+    ]
+}

@@ -232,8 +232,11 @@ def pipe_to_statement(pipe : PipeBase):
             # a switch pipe translates into a switch statement
             case_strs = []
             for k, v in cases.items():
-                case_strs.append(f"case {k}: {{ {pipe_to_statement(v)} }} ")
-            return f"switch ({var}) {{ {' '.join(case_strs)} }}"
+                if (k == None):
+                    case_strs.append(f"\ndefault:{{\n{tablines(4, pipe_to_statement(v))  }\n}}")
+                else:
+                    case_strs.append(f"\ncase {k}:{{\n{tablines(4, pipe_to_statement(v))  }\n}}")
+            return f"switch (ctx->{var.name}) {{{tablines(4,''.join(case_strs))}\n}}"
         case Move(dst_queue):
             return f"rte_ring_enqueue({dst_queue.name}, {mbuf.name});"
         case Seq(left, right):
@@ -465,8 +468,7 @@ resources_dir = "./resources"
 resources = [
     "Makefile", 
     "dpdk_init.h",
-    "pcaprun.sh",
-    "test.pcap",
+    "pcaprun.sh"
 ]
 
 def copy_dpdk_resources(base_dir : str):
