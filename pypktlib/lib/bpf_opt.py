@@ -32,7 +32,7 @@ def annotate(pre_p : Segment, vars : list[Var]):
     print("Printed new segment!")
     return replace(pre_p, pipe=new_p)
 
-def deannotate(post_p : PipeBase, vars : list[Var]):
+def deannotate(post_p : Segment, vars : list[Var]):
     return None
 
 def annotator_atom(vars : list[Var]):
