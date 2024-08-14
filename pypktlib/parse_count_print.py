@@ -14,23 +14,7 @@ from usersyntax import *
 from stdlib import * 
 
 
-# parse eth and count ip packets, print count
-parse_ct_print = Main(
-    pipes = {
-        eth0:At(Core["c0"],
-            Meta.eth <- parse_eth()             %
-            (Meta.ety <- get_eth_ty(Meta.eth)    %
-            (Meta.ct <- count_ip(Meta.ety)       %
-            Switch(Meta.ety)({
-                0x0800: print_ct(Meta.ct) >> Exit(eth1),
-                None: Exit(eth1)
-            })))
-        )
-    }
-)
-
-
-
+# read from eth0, parse eth and count ip packets, print ip count, forward to eth1
 parse_ct_print = Main(
     pipes = {
         eth0:At(Core["c0"],

@@ -1,3 +1,4 @@
+"""toplevel compilation functions"""
 import sys
 import os
 from names import *

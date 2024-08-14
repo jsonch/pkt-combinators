@@ -1,6 +1,6 @@
+"""frontend passes"""
 from syntax import *
 
-#### frontend passes
 def recurse(f, pipe):
     """helper to recurse on cases that do nothing"""
     match pipe:

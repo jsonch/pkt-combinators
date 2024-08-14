@@ -1,4 +1,4 @@
-"""Frontend syntax for Mario"""
+"""Frontend syntax for Mario."""
 from typing import TypeVar, Generic, get_args, Optional
 from names import *
 from ty import *
