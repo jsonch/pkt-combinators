@@ -17,9 +17,8 @@ def compile_dpdk(pipe:PipeBase):
 def build(pipe, build_dir):
     """Build a pipe and write it to the given directory"""
     # make the directory
-    print("Building pipe to", build_dir)
+    print("Compiling pipe to directory:", build_dir)
     os.makedirs(build_dir, exist_ok=True)
-
     # build and write the program to the c file
     prog_str = compile_dpdk(pipe)
     out_fn = os.path.join(build_dir, "pipe.c")
