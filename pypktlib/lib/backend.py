@@ -3,7 +3,7 @@
 """
 import os, shutil
 from itertools import chain
-from .syntax import *
+from syntax import *
 #### Pipeline IR
 
 # the IR is a graph of named, located pipe segments.
@@ -49,6 +49,7 @@ class Move(PipeBase):
 @dataclass(frozen=True)
 class IrProg():
     """ A program in the IR """
+    cstr     : Optional[str] = None # custom c helpers used inside of atoms
     segments : list[Segment] = None
     queues   : list[Queue] = None
     def __str__(self):
@@ -85,14 +86,14 @@ def pipe_to_segments(prog: IrProg, cur_seg_name : str, bound_vars : list[Var], p
                 # into a message for the queue and then return.
                 rv = Move(dst_queue=next_queue)
                 rv = replace(rv, start=pipe.start, end=pipe.end)
-                return IrProg(prog.segments+[next_segment], prog.queues+[next_queue]), after_next_name, rv
+                return IrProg(prog.cstr, prog.segments+[next_segment], prog.queues+[next_queue]), after_next_name, rv
             else:
                 # build the next segment
                 prog, after_next_name, next_pipe = pipe_to_segments(prog, next_name, bound_vars, inner_pipe)
                 next_segment = Segment(name=next_name, rx_queue=None, location=location, pipe=next_pipe)
                 next_segment = replace(next_segment, rx_dev=rx_dev)
                 rv = Move(dst_queue=None)
-                return IrProg(prog.segments+[next_segment], prog.queues), after_next_name, rv
+                return IrProg(prog.cstr, prog.segments+[next_segment], prog.queues), after_next_name, rv
         case Seq(left, right):
             prog, after_left_name, new_left = pipe_to_segments(prog, cur_seg_name, bound_vars, left)
             if (after_left_name != cur_seg_name):
@@ -124,7 +125,7 @@ def pipe_to_segments(prog: IrProg, cur_seg_name : str, bound_vars : list[Var], p
                 prog, _, new_case = pipe_to_segments(prog, cur_seg_name, bound_vars, v)
                 new_cases[k] = new_case
             return prog, cur_seg_name, replace(pipe, cases=new_cases)
-        case NicDeliver(_, pipes):
+        case MainPipe(_, pipes):
             new_pipes = []
             for k, v in pipes:
                 prog, _, new_pipe = pipe_to_segments(prog, cur_seg_name, bound_vars, v, rx_dev=k)
@@ -139,11 +140,11 @@ def pipe_to_ir(pipe : PipeBase):
     # and then run the normal pipe_to_segments on it.
     main_segment_name = fresh_segment_name(start_loc)
     # note: the packet argument is a global variable, hence why we pass it to bound vars
-    prog, _, main_segment_pipe = pipe_to_segments(IrProg([], []), main_segment_name, [packet_arg], pipe)
+    prog, _, main_segment_pipe = pipe_to_segments(IrProg(None, [], []), main_segment_name, [packet_arg], pipe)
     main_segment = Segment(name=main_segment_name, location=start_loc, pipe=main_segment_pipe)
     segments = prog.segments + [main_segment]
     segments = segments[::-1]
-    prog = IrProg(segments, prog.queues)
+    prog = IrProg(pipe.cstr, segments, prog.queues)
     return prog
 
 
@@ -174,7 +175,7 @@ void {queue_init_fname}(void) {{
     ret = "\n" + decl_str + "\n" + init_fcn
     return ret
 
-def pipe_return_vars(pipe : PipeBase):
+def pipe_return_vars(pipe : PipeBase) -> list[Var]:
     """
         Get the return variables of all the atoms in the pipe
     """
@@ -192,9 +193,12 @@ def pipe_return_vars(pipe : PipeBase):
         case At(_, inner_pipe):
             return pipe_return_vars(inner_pipe)
         case Switch(_, cases):
-            lists = [v for k, v in cases.items() for v in pipe_return_vars(v)] 
-            return list(chain(*lists))
-        case NicDeliver(_, pipes):
+            return_vars_by_case = []
+            for k, v in cases.items():
+                for return_var in pipe_return_vars(v):
+                    return_vars_by_case.append(return_var)
+            return return_vars_by_case
+        case MainPipe(_, pipes):
             lists = [pipe_return_vars(v) for k, v in pipes]
             return list(chain(*lists))
         case Move(_):
@@ -224,10 +228,19 @@ def pipe_to_statement(pipe : PipeBase):
             argstrs = [state_arg.name, args[0].name]
             # pipe vars (including return vars) are all stored in the context
             for arg in args[1::]:
-                argstrs.append(f"({arg.ty} *)&(ctx->{arg.name})")
+                if (type(arg)) == Var:
+                    argstrs.append(f"({arg.ty} *)&(ctx->{arg.name})")
+                elif (type(arg)) == Val:
+                    argstrs.append(f"{arg.value}")
+                else:
+                    print(type(arg))
+                    print(arg)
+                    print("compiler error: invalid argument type in printer")
+                    exit(1)
+
             return f"{atom.fn_name}({', '.join(argstrs)});"
-        case NicDeliver(_, _):
-            raise Exception("NicDeliver cannot be translated into a c statement")
+        case MainPipe(_, _):
+            raise Exception("MainPipe cannot be translated into a c statement")
         case Switch(var, cases):
             # a switch pipe translates into a switch statement
             case_strs = []
@@ -297,9 +310,10 @@ def state_decl_init_of_pipe(pipe : PipeBase):
             if (atom.state_ty == None):
                 return []
             else:
+             args = ", ".join([str(a) for a in atom.init_args])
              return [
                  (f"{atom.state_ty} {state.name}_v;\n{atom.state_ty} * {state.name} = &{state.name}_v;",
-                 f"{state.name} = {atom.init_fn_name}();")
+                 f"{state.name} = {atom.init_fn_name}({args});")
              ]
         case Seq(left, right):
             return state_decl_init_of_pipe(left) + state_decl_init_of_pipe(right)
@@ -309,7 +323,7 @@ def state_decl_init_of_pipe(pipe : PipeBase):
             return state_decl_init_of_pipe(inner_pipe)
         case Switch(_, cases):
             return list(chain(*[state_decl_init_of_pipe(v) for k, v in cases.items()]))
-        case NicDeliver(_, pipes):
+        case MainPipe(_, pipes):
             return list(chain(*[state_decl_init_of_pipe(v) for k, v in pipes]))
         case Move(_):
             return []
@@ -318,6 +332,89 @@ def state_decl_init_of_pipe(pipe : PipeBase):
         case _:
             raise Exception("Unknown pipe type: "+str(type(pipe)))
 
+
+
+def ty_defs_of_pipe(pipe : PipeBase):
+    """Collect all the UserTy definitions from the pipe"""
+    match pipe:
+        case Atom(state, atomdecl, args, return_var):
+            rv = []
+            if (atomdecl.state_ty != None):
+                s = atomdecl.state_ty.c_str()
+                if (s != None):
+                    rv.append(s)
+            for aty in atomdecl.arg_tys:
+                s = aty.c_str()
+                if (s != None):
+                    rv.append(s)
+            if (atomdecl.ret_ty != None):
+                s = atomdecl.ret_ty.c_str()
+                if (s != None):
+                    rv.append(s)
+            return rv
+        case Seq(left, right):
+            return ty_defs_of_pipe(left) + ty_defs_of_pipe(right)
+        case Let(_, left, right):
+            return ty_defs_of_pipe(left) + ty_defs_of_pipe(right)
+        case At(_, inner_pipe):
+            return ty_defs_of_pipe(inner_pipe)
+        case Switch(_, cases):
+            return list(chain(*[ty_defs_of_pipe(v) for k, v in cases.items()]))
+        case MainPipe(_, pipes):
+            return list(chain(*[ty_defs_of_pipe(v) for k, v in pipes]))
+        case Move(_):
+            return []
+        case Exit(_):
+            return []
+        case _:
+            raise Exception("Unknown pipe type: "+str(type(pipe)))
+
+def ty_defs_of_prog(irprog : IrProg):
+    """get all of the user type c blocks from atoms in an IrProg"""
+    defs = []
+    for s in irprog.segments:
+        if (s.pipe != None):
+            defs += ty_defs_of_pipe(s.pipe)
+    # delete duplicates
+    seen = set()
+    defs = [x for x in defs if not (x in seen or seen.add(x))]    
+    return defs
+
+
+def atom_defs_of_pipe(pipe : PipeBase):
+    match pipe:
+        case Atom(state, atomdecl, args, return_var):
+            rv = [atomdecl.fn] # there is always a processing function
+            if (atomdecl.init != None): # there is optionally an init function
+                rv = rv + [atomdecl.init]
+            return rv
+        case Seq(left, right):
+            return atom_defs_of_pipe(left) + atom_defs_of_pipe(right)
+        case Let(_, left, right):
+            return atom_defs_of_pipe(left) + atom_defs_of_pipe(right)
+        case At(_, inner_pipe):
+            return atom_defs_of_pipe(inner_pipe)
+        case Switch(_, cases):
+            return list(chain(*[atom_defs_of_pipe(v) for k, v in cases.items()]))
+        case MainPipe(_, pipes):
+            return list(chain(*[atom_defs_of_pipe(v) for k, v in pipes]))
+        case Move(_):
+            return []
+        case Exit(_):
+            return []
+        case _:
+            raise Exception("Unknown pipe type: "+str(type(pipe)))
+
+def atom_defs_of_prog(irprog : IrProg):
+    """get all of the extern c blocks from atoms in an IrProg"""
+    defs = []
+    for s in irprog.segments:
+        if (s.pipe != None):
+            defs += atom_defs_of_pipe(s.pipe)
+    # delete duplicates
+    seen = set()
+    defs = [x for x in defs if not (x in seen or seen.add(x))]    
+    return defs
 
 state_init_fname = "init_state"
 def state_init(irprog : IrProg):
@@ -438,14 +535,26 @@ cfg_t cfg = {
 };    
 """
 
+
+
+
 def irprog_to_dpdkcode(irprog : IrProg):
+    user_helpers = "\n".join([str(c) for c in irprog.cstr])
+    user_tys = "\n".join(ty_defs_of_prog(irprog))
+    atom_defs = "\n".join(atom_defs_of_prog(irprog))
     prog_ctx = prog_ctx_decl(irprog)
     state_init_str = state_init(irprog)
     queue_init_str = queue_inits(irprog)
     n_locs, loc_procs_str = loc_procs(irprog)
     segment_function_str = "\n".join([segment_function(s) for s in irprog.segments])
     return f"""
-/******* compiler-generated code ********/
+/********** user c code ***********/
+{user_helpers}
+/********** user types ***********/
+{user_tys}
+/********** atom definitions ***********/
+{atom_defs}
+/******* compiler-generated includes ********/
 {includes}
 /********** pipeline context / metadata ***********/
 {prog_ctx}
