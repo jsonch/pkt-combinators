@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
+import sys, os, subprocess
+sys.path.append("./lib")
 
-#!/usr/bin/env python3
-import sys
-import os
-
-# Add the lib directory to the sys.path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'lib'))
-
-from compile import *
-from names import *
-from ty import *
-from usersyntax import *
-from stdlib import * 
+from lib.compile import *
+from lib.names import *
+from lib.ty import *
+from lib.usersyntax import *
+from lib.stdlib import * 
 
 
 # read from eth0, parse eth and count ip packets, print ip count, forward to eth1
