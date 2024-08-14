@@ -1,4 +1,4 @@
-from .syntax import *
+from syntax import *
 
 #### frontend passes
 def recurse(f, pipe):
@@ -17,7 +17,7 @@ def recurse(f, pipe):
         case Switch(_, cases):
             new_cases = {k: f(v) for k, v in cases.items()}
             return replace(pipe, cases=new_cases)
-        case NicDeliver(_, pipes): 
+        case MainPipe(_, pipes): 
             new_pipes = [(k, f(v)) for k, v in pipes]
             return replace(pipe, pipes=new_pipes)
 
@@ -30,7 +30,7 @@ def instantiate(pipe : PipeBase):
     match pipe: 
         case Atom(None, atom, args, return_var):
             if (atom.state_ty != None):
-                state_var = varty(fresh_name(name(atom)+"_state"), atom.state_ty)
+                state_var = Var(name=fresh_name(name(atom)+"_state"), ty=atom.state_ty)
                 return replace(pipe, state=state_var)
             else:
                 return pipe
@@ -44,20 +44,30 @@ def rename_vars(renames : dict[str, str], pipe : PipeBase):
             # for an Atom, rename the arguments to the updated names
             renamed_args = []
             for arg in args:
-                if arg in renames:
-                    renamed_args.append(renames[arg])
+                if type(arg) == Val:
+                    renamed_args.append(arg) # do nothing
                 else:
-                    raise Exception(f"Unbound variable {str(arg.name)}")
+                    if arg.name in renames:
+                        renamed_args.append(renames[arg.name])
+                    else:
+                        print("-----renames-----")
+                        for k, v in renames.items():
+                            print(f"{k} -> {v}")
+                        raise Exception(f"Unbound variable {str(arg.name)}")
             return replace(pipe, args=renamed_args)
         case Let(ret, left, right):
             # for a Let, rename the return variable and replace all occurences in the next pipe
             fresh_ret = fresh_var(ret)
-            inner_renames = {r: f for r, f in renames.items() if r != ret}
-            inner_renames = {**inner_renames, **{ret: fresh_ret}} # add the fresh return name
+            inner_renames = {r: f for r, f in renames.items() if r != ret.name}
+            inner_renames = {**inner_renames, **{ret.name: fresh_ret}} # add the fresh return name
+            # print("let pipe: ", str(pipe))
+            # print("---inner_renames---")
+            # for k, v in inner_renames.items():
+            #     print(f"{k} -> {v}")
             return replace (pipe, ret=fresh_ret, left=rename_vars(renames, left), right=rename_vars(inner_renames, right))
         case Switch(var, cases):
-            if var in renames:
-                new_var = renames[var]
+            if var.name in renames:
+                new_var = renames[var.name]
             else:
                 raise Exception(f"Unbound variable in switch expression {str(var.name)}")
             new_cases = {k:recurse(recurse_with_renames, pipe) for (k, pipe) in cases.items()}
@@ -75,7 +85,7 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
         case Atom(_, atom, args, None):
             new_args = []
             for arg, ty in zip(args, atom.arg_tys):
-                new_args.append(varty(arg, ty))
+                new_args.append(argty(arg, ty))
             if (atom.ret_ty == None):
                 if (cur_ret != None):
                     print(f"Error: atom {atom.name} has no return type, but is used in a pipe that expects a return value from it.")
@@ -84,9 +94,9 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
                     return None, replace (pipe, args=new_args)
             else: # the atom has a return type, so we will create a return variable no matter what.
                 if (cur_ret == None):
-                    cur_ret = varty(fresh_name("_unused"+name(atom)+"_ret"), atom.ret_ty)
+                    cur_ret = Var(name=fresh_name("_unused"+name(atom)+"_ret"), ty=atom.ret_ty)
                 else:
-                    cur_ret = varty(cur_ret.name, atom.ret_ty)
+                    cur_ret = argty(cur_ret, atom.ret_ty)
                 return atom.ret_ty, replace (pipe, args=new_args, return_var=cur_ret)
         # case: sequence of two pipes. Only the return of the second pipe is used.
         case Seq(left, right):
@@ -96,7 +106,7 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
         # case: let binding. The return variable of the left pipe is bound to the name in the let binding.
         case Let(ret, left, right):
             left_ret_ty, left = type_pipeline_vars(ret, left)
-            ret = varty(ret.name, left_ret_ty)
+            ret = argty(ret, left_ret_ty)
             right_ret_ty, right = type_pipeline_vars(cur_ret, right)
             return right_ret_ty, replace(pipe, ret=ret, left=left, right=right)
         # case: change the pipe's location -- this has no effect on the return variables
@@ -122,7 +132,7 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
         case At(_, inner_pipe):
             ret_ty, inner_pipe = type_pipeline_vars(cur_ret, inner_pipe)
             return ret_ty, replace(pipe, inner_pipe=inner_pipe)
-        case NicDeliver(_, pipes):
+        case MainPipe(_, pipes):
             new_pipes = []
             for k, v in pipes:
                 ret_ty, new_pipe = type_pipeline_vars(cur_ret, v)
@@ -145,14 +155,14 @@ def switch_continuations(pipe : PipeBase):
         case Seq(left, right):
             new_right = switch_continuations(right)
             if (isinstance(left, Switch)):
-                new_cases = {k: seq(switch_continuations(v), new_right) for k, v in left.cases.items()}
+                new_cases = {k: Seq(left=switch_continuations(v), right=new_right) for k, v in left.cases.items()}
                 return replace(left, cases=new_cases)
             else:
                 return replace(pipe, left=switch_continuations(left), right=new_right)
         case Let(var, left, right):
             new_right = switch_continuations(right)
             if (isinstance(left, Switch)):
-                new_cases = {k: let(var, v, new_right) for k, v in left.cases.items()}
+                new_cases = {k: Let(ret=var, left=v, right=new_right) for k, v in left.cases.items()}
                 return replace(left, cases=new_cases)
             else:
                 return replace(pipe, left=switch_continuations(left), right=new_right)
@@ -190,14 +200,14 @@ def at_continuations(pipe : PipeBase):
             left = at_continuations(left)
             right = at_continuations(right)
             if (isinstance(left, At)):
-                return replace(left, inner_pipe=seq(left.inner_pipe, right))
+                return replace(left, inner_pipe=Seq(left=left.inner_pipe, right=right))
             else:
                 return replace(pipe, left=left, right=right)
         case Let(var, left, right):
             left = at_continuations(left)
             right = at_continuations(right)
             if (isinstance(left, At)):
-                return replace(left, inner_pipe=let(var, left.inner_pipe, right))
+                return replace(left, inner_pipe=Let(ret=var, left=left.inner_pipe, right=right))
             else:
                 return replace(pipe, left=left, right=right)
         case _:
@@ -282,10 +292,10 @@ def locate_pipes(pipe : PipeBase, cur_loc : str):
                 return replace(pipe, cases=new_cases, start=cur_loc, end=case_end_locs[0])
             else:
                 return replace(pipe, cases=new_cases, start=cur_loc, end=multi_end_loc)
-        case NicDeliver(_, pipes):
+        case MainPipe(_, pipes):
             # a nic d
             if (cur_loc != start_loc):
-                print("Error: NicDeliver pipe in a non-start location.")
+                print("Error: MainPipe pipe in a non-start location.")
                 exit(1)
             new_pipes = [(k, locate_pipes(v, cur_loc)) for k, v in pipes]
             pipe_end_locs = [v.end for _, v in new_pipes]

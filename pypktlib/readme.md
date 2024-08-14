@@ -1,11 +1,12 @@
 
-`mario.py` constructs a dpdk pipeline from a pipeline specification. 
-The pipeline specification is written in python, using the library in `libs/syntax.py`. 
-The pipeline specification should be inlined into the source c file, in `PYTHON({...})`
-blocks, as shown in `progs/dpdk1.c`.
+`lib/compile.py` has the `compile_dpdk` function, which takes a pipe defined with the constructors in `lib/usersyntax.py` and compiles it to a dpdk program. 
 
-Example usage: 
-1. run `./mario.py ./progs/dpdk1.c -o dpdk1_build`
-2. `dpdk1_build/dpdk1_mario.c` is the compiled file
-3. if you have dpdk installed, you should be able to run `make` in `dpdk1_build` to build the program, and `./pcaprun.sh` to run it on the test pcap
-4. if you _don't_ have dpdk installed, follow `multipass_setup.md` in the toplevel of this repo for instructions on how to set up a multipass vm with dpdk installed.
+TODO: 
+-  print out the code blocks of an atom
+-  write a script to compile and run a dpdk app
+1. add support for integer literals as atom arguments
+2. add parametric atoms that can be initialized with different init function parameters
+3. add a way to define user types
+4. use ptr types consistently in backends
+6. add a standard library of common atoms
+7. test dpdk output

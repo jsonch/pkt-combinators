@@ -1,5 +1,22 @@
 from usersyntax import *
 
+
+# def refresh_example():
+#     foo = Atom[None, None, ref[Ty.uint]]("foo", "//todo")
+
+#     foopipe = Pipe(foo())
+
+#     newfoofoo = Pipe(New(foopipe >> foopipe))
+#     print("----newfoofoo----")
+#     print(newfoofoo)
+
+#     newfoonewfoo = Pipe(New(foopipe) >> New(foopipe))
+#     print("----newfoonewfoo----")
+#     print(newfoonewfoo)
+
+# refresh_example()
+# exit()
+
 ### Examples
 def examples():
     # define some abstract types
@@ -41,6 +58,7 @@ def examples():
                 return malloc(len * 4);
             }
         """,
+        initname="mkTbl",
         init_args = [1024]
     )
 
