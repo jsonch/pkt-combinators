@@ -146,8 +146,10 @@ class InitializedAtom(Generic[S, A, R]):
             for a in args:
                 if (type(a) == int):
                     _args.append(syntax.Val.from_int(a))
-                else:
+                elif(type(a) == Var):
                     _args.append(syntax.Var(name=str(a)))
+                elif(type(a) == str):
+                    _args.append(syntax.StrLiteral(a))
             # args = [str(a) for a in args]
             rv = AtomCall(self, self.fname, arg_types, return_type, _args, self.instance_id)
             return rv

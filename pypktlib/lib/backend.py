@@ -232,6 +232,8 @@ def pipe_to_statement(pipe : PipeBase):
                     argstrs.append(f"({arg.ty} *)&(ctx->{arg.name})")
                 elif (type(arg)) == Val:
                     argstrs.append(f"{arg.value}")
+                elif (type(arg)) == StrLiteral:
+                    argstrs.append(str(arg))
                 else:
                     print(type(arg))
                     print(arg)
@@ -548,14 +550,14 @@ def irprog_to_dpdkcode(irprog : IrProg):
     n_locs, loc_procs_str = loc_procs(irprog)
     segment_function_str = "\n".join([segment_function(s) for s in irprog.segments])
     return f"""
+/******* compiler-generated includes ********/
+{includes}
 /********** user c code ***********/
 {user_helpers}
 /********** user types ***********/
 {user_tys}
 /********** atom definitions ***********/
 {atom_defs}
-/******* compiler-generated includes ********/
-{includes}
 /********** pipeline context / metadata ***********/
 {prog_ctx}
 /********** config ***********/

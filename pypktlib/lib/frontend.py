@@ -20,6 +20,10 @@ def recurse(f, pipe):
         case MainPipe(_, pipes): 
             new_pipes = [(k, f(v)) for k, v in pipes]
             return replace(pipe, pipes=new_pipes)
+        case _: 
+            print(type(pipe))
+            print("ERROR IN RECURSE!")
+            exit(1)
 
 
 def instantiate(pipe : PipeBase):
@@ -38,13 +42,15 @@ def instantiate(pipe : PipeBase):
 
 def rename_vars(renames : dict[str, str], pipe : PipeBase):
     """rename variables in let bindings to prevent shadowing"""
-    recurse_with_renames = lambda p: rename_vars(renames, p)
+    def recurse_with_renames(p):
+        rv = rename_vars(renames, p)
+        return rv
     match pipe:
         case Atom(_, _, args, _):
             # for an Atom, rename the arguments to the updated names
             renamed_args = []
             for arg in args:
-                if type(arg) == Val:
+                if type(arg) in [Val, StrLiteral]:
                     renamed_args.append(arg) # do nothing
                 else:
                     if arg.name in renames:
@@ -54,27 +60,34 @@ def rename_vars(renames : dict[str, str], pipe : PipeBase):
                         for k, v in renames.items():
                             print(f"{k} -> {v}")
                         raise Exception(f"Unbound variable {str(arg.name)}")
-            return replace(pipe, args=renamed_args)
+            rv = replace(pipe, args=renamed_args)
+            return rv
         case Let(ret, left, right):
             # for a Let, rename the return variable and replace all occurences in the next pipe
             fresh_ret = fresh_var(ret)
             inner_renames = {r: f for r, f in renames.items() if r != ret.name}
             inner_renames = {**inner_renames, **{ret.name: fresh_ret}} # add the fresh return name
-            # print("let pipe: ", str(pipe))
+            # print("let pipe: ", pretty_print(pipe))
             # print("---inner_renames---")
             # for k, v in inner_renames.items():
             #     print(f"{k} -> {v}")
-            return replace (pipe, ret=fresh_ret, left=rename_vars(renames, left), right=rename_vars(inner_renames, right))
+            rv = replace (pipe, ret=fresh_ret, left=rename_vars(renames, left), right=rename_vars(inner_renames, right))
+            return rv
         case Switch(var, cases):
             if var.name in renames:
                 new_var = renames[var.name]
             else:
                 raise Exception(f"Unbound variable in switch expression {str(var.name)}")
-            new_cases = {k:recurse(recurse_with_renames, pipe) for (k, pipe) in cases.items()}
-            return replace(pipe, var=new_var, cases=new_cases)
+            new_cases = {}
+            for (k, inner_pipe) in cases.items():
+                new_pipe = rename_vars(renames, inner_pipe)
+                new_cases[k] = new_pipe
+            rv = replace(pipe, var=new_var, cases=new_cases)
+            return rv
         case _: 
             # for all other cases, recurse with the same renames
-            return recurse(recurse_with_renames, pipe)
+            rv = recurse(recurse_with_renames, pipe)
+            return rv
 
 def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
     """Set each atom's return variable and infer types for all pipe variables. 
@@ -159,10 +172,10 @@ def switch_continuations(pipe : PipeBase):
                 return replace(left, cases=new_cases)
             else:
                 return replace(pipe, left=switch_continuations(left), right=new_right)
-        case Let(var, left, right):
+        case Let(ret, left, right):
             new_right = switch_continuations(right)
             if (isinstance(left, Switch)):
-                new_cases = {k: Let(ret=var, left=v, right=new_right) for k, v in left.cases.items()}
+                new_cases = {k: Let(ret=ret, left=v, right=new_right) for k, v in left.cases.items()}
                 return replace(left, cases=new_cases)
             else:
                 return replace(pipe, left=switch_continuations(left), right=new_right)

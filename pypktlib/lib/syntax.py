@@ -53,7 +53,6 @@ class Var(ArgExp):
 
 @dataclass(frozen=True)
 class Val(ArgExp):
-    # TODO
     """ A value is an int constant. """
     value : int
     ty : Optional[Ty]
@@ -65,6 +64,14 @@ class Val(ArgExp):
         return cls(value=i, ty='int')
     def from_tint(cls, i, ty):
         return(cls(value=i, ty=ty))
+
+@dataclass(frozen=True)
+class StrLiteral(ArgExp):
+    """ A string literal """
+    value : str
+    def __str__(self): # quote the string
+        rv = f"\"{self.value}\""
+        return rv
 
 class C():
     """A block of c code that can optionally be used as a template """
@@ -127,8 +134,10 @@ def var(name : str):
 def argty(arg : ArgExp, ty : Ty):
     if type(arg) == Var:
         return Var(arg.name, ty)
-    elif (type(arg) == Val):
+    elif type(arg) == Val:
         return Val(arg.value, ty)
+    elif (type(arg) == StrLiteral):
+        return StrLiteral(arg.value)
     else:
         print("type(arg): ", type(arg))
         print("arg: ", arg)

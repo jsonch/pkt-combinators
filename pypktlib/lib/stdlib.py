@@ -19,6 +19,10 @@ uint16_t = UserTy(
 uint32_t = UserTy(
     name = "uint32_t"
 )
+str_t = UserTy(
+    name = "str_t",
+    cstr = "typedef char* str_t;"
+)
 
 eth_t = UserTy(
     name = "eth_t",
@@ -63,7 +67,9 @@ void parse_eth(void * nostate, char * pkt, eth_t* eth) {
 get_eth_ty = Atom[None, ref[eth_t], ref[uint16_t]](
     name="get_eth_ty",
     f="""
-void get_eth_ty(void * nostate, char * pkt, eth_t* eth, uint16_t ety)
+void get_eth_ty(void * nostate, char * pkt, eth_t* eth, uint16_t* ety) {
+    *ety = eth->type;
+}
     """
 )()
 
@@ -72,15 +78,14 @@ counter_t = UserTy(
     cstr = "typedef uint32_t counter_t;"
 )
 
-count_ip = Atom[ref[counter_t], ref[uint16_t], ref[uint32_t]](
-    name="count_ip",
+count = Atom[ref[counter_t], None, ref[uint32_t]](
+    name="count",
     f="""
-void count_ip(counter_t* ct, uint16_t* ety, uint32_t* count) {
-    if (ety = 0x0800) {
+void count(counter_t* ct, char* pkt, uint32_t* count) {
+        // update counter and return
         (*ct)++;
         *count = *ct;
     }
-}
 """,
     initname="count_init",
     init="""
@@ -95,8 +100,17 @@ counter_t* count_init(){
 print_ct = Atom[None, ref[uint32_t], None](
     name="print_ct",
     f="""
-void print_ct(uint32_t* ct) {
+void print_ct(void* nostate, char* pkt, uint32_t* ct) {
     printf("count: %d\\n", *ct);
+}
+"""
+)()
+
+print = Atom[None, str_t, None](
+    name="print",
+    f="""
+void print(void* nostate, char* pkt, char* str) {
+    printf("%s", str);
 }
 """
 )()
