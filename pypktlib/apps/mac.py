@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 
-""" A simple mac learner """
+""" 
+A simple mac learner 
+# the mac learner looks up the destination address of each packet 
+# to find an output port. Then, it records the mapping from 
+# address -> port for the packets source address and ingress port.
+"""
 
 import sys, os, subprocess
 
