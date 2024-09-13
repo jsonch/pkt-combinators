@@ -1,5 +1,6 @@
 """frontend passes"""
 from syntax import *
+import copy
 
 def recurse(f, pipe):
     """helper to recurse on cases that do nothing"""
@@ -62,6 +63,13 @@ def rename_vars(renames : dict[str, str], pipe : PipeBase):
                         raise Exception(f"Unbound variable {str(arg.name)}")
             rv = replace(pipe, args=renamed_args)
             return rv
+        case Exit(dest):
+            rename_str_keys = {str(k): v for k, v in renames.items()}
+            if dest.devnum != None and str(dest.devnum) in rename_str_keys:
+                new_dest = replace(dest, devnum=rename_str_keys[str(dest.devnum)])
+                return replace(pipe, dest=new_dest)
+            else:
+                return pipe
         case Let(ret, left, right):
             # for a Let, rename the return variable and replace all occurences in the next pipe
             fresh_ret = fresh_var(ret)

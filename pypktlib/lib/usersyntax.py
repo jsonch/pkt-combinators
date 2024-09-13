@@ -478,6 +478,9 @@ def Switch(var):
 
 default = "_"
 
+def Send(port):
+    return Exit((port, 0))
+
 ### misc helpers
 def dprint(s):
     return

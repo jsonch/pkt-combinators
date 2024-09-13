@@ -266,8 +266,14 @@ def pipe_to_statement(pipe : PipeBase):
         case Exit(None):
             return f"rte_pktmbuf_free({mbuf.name});\nreturn;"
         case Exit(dest):
+            devnum = dest.devnum
+            if (type(devnum)) == Var:
+                # not an address because the tx function takes an integer
+                devnum_str = f"ctx->{devnum.name}"
+            else:
+                devnum_str = str(devnum)
             stmts = [
-                f"const uint16_t nb_tx = rte_eth_tx_burst({dest.devnum}, {dest.queue}, &{mbuf.name}, 1);",
+                f"const uint16_t nb_tx = rte_eth_tx_burst({devnum_str}, {dest.queue}, &{mbuf.name}, 1);",
                 f"if (nb_tx == 0) {{rte_pktmbuf_free({mbuf.name});}}",
                 "return;"]
             return "\n".join(stmts)            
@@ -574,8 +580,12 @@ def irprog_to_dpdkcode(irprog : IrProg):
 {main_fcn(n_locs)}
 """
 
+
+
 # DPDK program build directory setup
-resources_dir = "./resources"
+# resources dir should be in parent of this script's dir
+resources_dir = os.path.dirname(__file__) + "/../resources"
+
 resources = [
     "Makefile", 
     "dpdk_init.h",

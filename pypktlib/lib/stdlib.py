@@ -12,6 +12,15 @@ eth1 = (1, 0)
 
 
 ### types
+uint8_t = UserTy(
+    name = "uint8_t"
+)
+macaddr_t = UserTy(
+    name = "macaddr_t",
+    cstr = "typedef uint8_t macaddr_t[6];"
+)
+
+
 uint16_t = UserTy(
     name = "uint16_t"
 )
@@ -29,7 +38,7 @@ eth_t = UserTy(
     cstr = 
 """
 typedef struct eth_t {
-    uint8_t  dest[6];   // Destination MAC address
+    uint8_t  dst[6];   // Destination MAC address
     uint8_t  src[6];    // Source MAC address
     uint16_t type;      // EtherType
 } __attribute__((packed)) eth_t;
@@ -55,6 +64,49 @@ typedef struct ip_t {
 """
 )
 
+# get ingress port. TODO
+get_ingress_port = Atom[None, None, ref[uint16_t]](
+    name="get_ingress_port",
+    f="""
+void get_ingress_port(void * nostate, char * pkt, uint16_t* port) {
+    // Logic to get ingress port from packet
+    *port = 1; // Replace with actual logic
+}
+"""
+)()
+
+
+# get dst mac directly from pointer to start of eth pkt
+extract_dmac = Atom[None, [], ref[macaddr_t]](
+    name="extract_dmac",
+    f="""
+void extract_dmac(void * nostate, char * pkt, macaddr_t* dmac) {
+    memcpy(*dmac, pkt, 6);
+}
+"""
+)()
+
+# get src mac directly from pointer to start of eth pkt
+extract_smac = Atom[None, [], ref[macaddr_t]](
+    name="extract_smac",
+    f="""
+void extract_smac(void * nostate, char * pkt, macaddr_t* smac) {
+    memcpy(*smac, pkt + 6, 6);
+}
+"""
+)()
+
+# get eth type directly from pointer to start of eth pkt
+extract_etype = Atom[None, [], ref[uint16_t]](
+    name="extract_etype",
+    f="""
+void extract_etype(void * nostate, char * pkt, uint16_t* etype) {
+    *etype = *(uint16_t*)(pkt + 12);
+}
+"""
+)()
+
+# parse full eth header from eth pkt
 parse_eth = Atom[None, None,ref[eth_t]](
     name="parse_eth", 
     f="""
@@ -63,6 +115,7 @@ void parse_eth(void * nostate, char * pkt, eth_t* eth) {
 }
 """
 )()
+
 
 get_eth_ty = Atom[None, ref[eth_t], ref[uint16_t]](
     name="get_eth_ty",
@@ -82,6 +135,24 @@ count = Atom[ref[counter_t], None, ref[uint32_t]](
     name="count",
     f="""
 void count(counter_t* ct, char* pkt, uint32_t* count) {
+        // update counter and return
+        (*ct)++;
+        *count = *ct;
+    }
+""",
+    initname="count_init",
+    init="""
+counter_t* count_init(){
+    counter_t* counter = mmap(NULL, sizeof(counter_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    *counter = 0;
+    return counter;
+}
+"""
+)()
+count_alt = Atom[ref[counter_t], None, ref[uint32_t]](
+    name="count_alt",
+    f="""
+void count_alt(counter_t* ct, char* pkt, uint32_t* count) {
         // update counter and return
         (*ct)++;
         *count = *ct;

@@ -9,12 +9,12 @@ def git_root_subdir(sub_path):
         print("This directory is not part of a git repository.")
         sys.exit(1)
 
-sys.path.append(git_root_subdir("lib"))
-from lib.compile import *
-from lib.names import *
-from lib.ty import *
-from lib.usersyntax import *
-from lib.stdlib import * 
+sys.path.append(git_root_subdir("pypktlib/lib"))
+from compile import *
+from names import *
+from ty import *
+from usersyntax import *
+from stdlib import * 
 
 
 # read from eth0, parse eth and count ip packets, print ip count, forward to eth1
