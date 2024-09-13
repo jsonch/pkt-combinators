@@ -88,6 +88,9 @@ void mactbl_set(mactbl_t* tbl, char * pkt, uint8_t (*dmac)[6], uint16_t* port) {
 
 # not bound to a specific location
 raw_mac_pipe = Pipe(
+    # get source mac, dst mac, and ingress port
+    # lookup dst_port = tbl[dst_mac]
+    # set tbl[src_mac] = ingress_port
     (Meta.dmac <- extract_dmac() %
     (Meta.smac <- extract_smac() %
     (Meta.ingress_port <- get_ingress_port() %
