@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys, os, subprocess
 
-def git_root_subdir(sub_path):
+def append_git_root_subdir(sub_path):
     try:
         root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"]).strip().decode('utf-8')
         sys.path.append(f"{root}/{sub_path}")
@@ -9,7 +9,8 @@ def git_root_subdir(sub_path):
         print("This directory is not part of a git repository.")
         sys.exit(1)
 
-sys.path.append(git_root_subdir("pypktlib"))
+append_git_root_subdir("pypktlib")
+
 from lib.compile import *
 from lib.usersyntax import *
 from lib.stdlib import * 
