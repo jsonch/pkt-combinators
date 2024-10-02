@@ -83,18 +83,17 @@ class Core(metaclass=DotMakerMeta(lambda name : Core(name))):
 
 class AtomState():
     """A global state object to use in atoms"""
-    def __init__(self, ty, initname=None, init=None, initargs = None):
-        self.ty = ty 
-        self.initname = initname # name of initializer function
-        self.init = init # implementation of initializer function in c
+    def __init__(self, ty, init=None, cstr=None, initargs = None):
+        self.ty = ty     # type of the state in mario
+        self.init = init # name of initializer function
+        self.cstr = cstr # implementation in c
         self.initargs = initargs
     def __call__(self, *args):
         """bind the initialization arguments for the constructor"""
-        return AtomState(self.ty, self.initname, self.init, args)
+        return AtomState(self.ty, self.init, self.cstr, args)
     def to_ir(self):
         """Return a named type in the ir"""
         return self.ty.to_ir()
-
 
 
 S = TypeVar('S') # State type
@@ -118,8 +117,8 @@ class Atom(Generic[S, A, R]):
         self.f = f
         state_type, _, _ = self.concrete_types
         if (state_type != None):
-            self.init = state_type.init
-            self.initname = state_type.initname
+            self.init = state_type.cstr
+            self.initname = state_type.init
             self.init_args = state_type.initargs
         else:
             self.init = None

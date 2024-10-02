@@ -11,6 +11,9 @@ eth1 = (1, 0)
 
 
 ### types
+void_t = UserTy(
+    name = "void"
+)
 uint8_t = UserTy(
     name = "uint8_t"
 )
@@ -125,8 +128,8 @@ void get_eth_ty(void * nostate, char * pkt, eth_t* eth, uint16_t* ety) {
 
 counter_state = AtomState(
     ty = ref[uint32_t],
-    initname = "count_init",
-    init = """
+    init = "count_init",
+    cstr = """
 uint32_t* count_init(int len){
     uint32_t * counter = mmap(NULL, len * sizeof(uint32_t *), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     for (int i = 0; i < len; i++){
