@@ -3,7 +3,7 @@
 """
 import os, shutil
 from itertools import chain
-from syntax import *
+from .syntax import *
 #### Pipeline IR
 
 # the IR is a graph of named, located pipe segments.

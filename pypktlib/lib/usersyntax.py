@@ -1,9 +1,32 @@
 """Frontend syntax for Mario."""
 from typing import TypeVar, Generic, get_args, Optional
-from names import *
-from ty import *
 from copy import copy
-import syntax
+from . import syntax
+
+C = syntax.C # uninterpreted C code
+
+# types
+class UserTy():
+    """A named user-defined type"""
+    def __init__(self, name, cstr=None):
+        self.name = name
+        self.cstr = cstr
+    def to_ir(self):
+        return syntax.TyName(name=self.name, cstr = self.cstr)
+
+# pointer type. Maybe not necessary?
+T = TypeVar('T')
+class Ptr(Generic[T]):
+    def __init__(self, type_arg=None):
+        self._type_arg = type_arg
+    @classmethod
+    def __class_getitem__(cls, item):
+        return cls(type_arg=item)
+    def to_ir(self):
+        type_var = self._type_arg
+        ir_type_var = type_var.to_ir()
+        return syntax.Ptr(ir_type_var)
+ref = Ptr
 
 
 # generic metaclass generator for a class Foo with a 
@@ -15,7 +38,7 @@ def DotMakerMeta(str_to_obj):
             return str_to_obj(attr)
     return DotMaker
 
-class Var:
+class Meta(metaclass = DotMakerMeta(lambda name : Meta(name))):
     """A pipe variable"""
     def __init__(self, s):
         self.s = s
@@ -28,20 +51,13 @@ class Var:
     def to_ir(self):
         return syntax.var(self.s)
 
-class Meta(metaclass = DotMakerMeta(lambda name : Var(name))):
-    # TODO: combine with Var?
-    """Lets you write string ids 
-       without quotes. Meta.x evals to "x" """
-    def __init__(self):
-        pass
-
-
-class State(metaclass = DotMakerMeta(lambda name : State(name))):
+class Bank(metaclass = DotMakerMeta(lambda name : Bank(name))):
+    """A state instance label"""
     next_anon = 0
     def __init__(self, name=None):
-        State.next_anon += 1
+        Bank.next_anon += 1
         if name == None:
-            name = "anon_state_"+str(State.next_anon)
+            name = "anon_state_"+str(Bank.next_anon)
         self.name = name
         self.instance_num = 1
     @classmethod
@@ -54,9 +70,31 @@ class State(metaclass = DotMakerMeta(lambda name : State(name))):
     def to_ir(self, ty):
         return syntax.Var(str(self), ty)
 
-Bank = State
+class LocMaker(type):
+    def __getitem__(cls, key):
+        return key
+class Core(metaclass=DotMakerMeta(lambda name : Core(name))):
+    def __init__(self, name=None):
+        self.name = name
+    def to_ir(self):
+        return self.name
 
-C = syntax.C # uninterpreted C code
+
+
+class AtomState():
+    """A global state object to use in atoms"""
+    def __init__(self, ty, initname=None, init=None, initargs = None):
+        self.ty = ty 
+        self.initname = initname # name of initializer function
+        self.init = init # implementation of initializer function in c
+        self.initargs = initargs
+    def __call__(self, *args):
+        """bind the initialization arguments for the constructor"""
+        return AtomState(self.ty, self.initname, self.init, args)
+    def to_ir(self):
+        """Return a named type in the ir"""
+        return self.ty.to_ir()
+
 
 
 S = TypeVar('S') # State type
@@ -129,7 +167,7 @@ class Atom(Generic[S, A, R]):
         # get type information from Atom class parameters
         orig_class = getattr(self, '__orig_class__', None)
         if (self.instance_id == None):
-            self.instance_id = State()
+            self.instance_id = Bank()
         if orig_class:
             state_type, arg_types, return_type = get_args(orig_class)
             if isinstance(arg_types, tuple):
@@ -140,7 +178,7 @@ class Atom(Generic[S, A, R]):
             for a in args:
                 if (type(a) == int):
                     _args.append(syntax.Val.from_int(a))
-                elif(type(a) == Var):
+                elif(type(a) == Meta):
                     _args.append(syntax.Var(name=str(a)))
                 elif(type(a) == str):
                     _args.append(syntax.StrLiteral(a))
@@ -154,7 +192,6 @@ class Atom(Generic[S, A, R]):
     def __getitem__(self, instance_id):
         # select which instance of the Atom you are using. 
         # by default, use the first instance. 
-        print("instance getitem")
         updated_atom = copy(self)
         updated_atom.instance_id = instance_id
         return updated_atom
@@ -301,7 +338,7 @@ class AtomCall(PipeBase):
         self.argtys = argtys
         self.retty = retty
         self.args = args
-        self.instance_id : Optional[State] = instance
+        self.instance_id : Optional[Bank] = instance
     def __str__(self):
         argtys_str = ", ".join([str(t) for t in self.argtys])
         if len(self.argtys) == 0:
@@ -384,7 +421,7 @@ def refresh(p : PipeBase, instance_num):
     # new_p = copy(p)
     if isinstance(p, AtomCall):
         new_p = copy(p)
-        new_p.instance_id = State.new(new_p.instance_id.name, instance_num)
+        new_p.instance_id = Bank.new(new_p.instance_id.name, instance_num)
         return new_p
     else:
         new_p = copy(p)

@@ -1,5 +1,5 @@
 """frontend passes"""
-from syntax import *
+from .syntax import *
 import copy
 
 def recurse(f, pipe):

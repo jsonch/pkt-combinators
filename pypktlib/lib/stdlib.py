@@ -2,10 +2,7 @@
     A standard library of C helpers, 
     types, atoms, and maybe even some pipes and combinators?
 """
-from names import *
-
-from ty import *
-from usersyntax import *
+from .usersyntax import *
 
 
 # some ethernet devices (dpdk dev id, dpdk port id)

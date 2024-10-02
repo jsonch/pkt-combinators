@@ -1,11 +1,10 @@
 """toplevel compilation functions"""
 import sys
 import os
-from names import *
-from usersyntax import *
-import syntax
-import frontend
-import backend
+from .usersyntax import *
+# import syntax
+from . import frontend
+from . import backend
 
 def compile_dpdk(pipe:PipeBase):
     """Compile a pipe defined with the usersyntax constructors to DPDK code."""
