@@ -3,8 +3,10 @@
     types, atoms, and maybe even some pipes and combinators?
 """
 from names import *
+
 from ty import *
 from usersyntax import *
+
 
 # some ethernet devices (dpdk dev id, dpdk port id)
 eth0 = (0, 0)
@@ -73,38 +75,37 @@ void get_ingress_port(void * nostate, char * pkt, uint16_t* port) {
     *port = 1; // Replace with actual logic
 }
 """
-)()
-
+)
 
 # get dst mac directly from pointer to start of eth pkt
-extract_dmac = Atom[None, [], ref[macaddr_t]](
+extract_dmac = Atom[None, None, ref[macaddr_t]](
     name="extract_dmac",
     f="""
 void extract_dmac(void * nostate, char * pkt, macaddr_t* dmac) {
     memcpy(*dmac, pkt, 6);
 }
 """
-)()
+)
 
 # get src mac directly from pointer to start of eth pkt
-extract_smac = Atom[None, [], ref[macaddr_t]](
+extract_smac = Atom[None, None, ref[macaddr_t]](
     name="extract_smac",
     f="""
 void extract_smac(void * nostate, char * pkt, macaddr_t* smac) {
     memcpy(*smac, pkt + 6, 6);
 }
 """
-)()
+)
 
 # get eth type directly from pointer to start of eth pkt
-extract_etype = Atom[None, [], ref[uint16_t]](
+extract_etype = Atom[None, None, ref[uint16_t]](
     name="extract_etype",
     f="""
 void extract_etype(void * nostate, char * pkt, uint16_t* etype) {
     *etype = *(uint16_t*)(pkt + 12);
 }
 """
-)()
+)
 
 # parse full eth header from eth pkt
 parse_eth = Atom[None, None,ref[eth_t]](
@@ -114,8 +115,7 @@ void parse_eth(void * nostate, char * pkt, eth_t* eth) {
     eth = (eth_t*) pkt;
 }
 """
-)()
-
+)
 
 get_eth_ty = Atom[None, ref[eth_t], ref[uint16_t]](
     name="get_eth_ty",
@@ -124,49 +124,32 @@ void get_eth_ty(void * nostate, char * pkt, eth_t* eth, uint16_t* ety) {
     *ety = eth->type;
 }
     """
-)()
-
-counter_t = UserTy(
-    name = "counter_t",
-    cstr = "typedef uint32_t counter_t;"
 )
 
-count = Atom[ref[counter_t], None, ref[uint32_t]](
+counter_state = AtomState(
+    ty = ref[uint32_t],
+    initname = "count_init",
+    init = """
+uint32_t* count_init(int len){
+    uint32_t * counter = mmap(NULL, len * sizeof(uint32_t *), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    for (int i = 0; i < len; i++){
+        counter[i] = 0;
+    }
+    return counter;
+}
+""")
+
+counter = Atom[counter_state(8), None, ref[uint32_t]](
     name="count",
     f="""
-void count(counter_t* ct, char* pkt, uint32_t* count) {
+void count(uint32_t* ct, char* pkt, uint32_t* count) {
         // update counter and return
         (*ct)++;
         *count = *ct;
     }
-""",
-    initname="count_init",
-    init="""
-counter_t* count_init(){
-    counter_t* counter = mmap(NULL, sizeof(counter_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    *counter = 0;
-    return counter;
-}
-"""
-)()
-count_alt = Atom[ref[counter_t], None, ref[uint32_t]](
-    name="count_alt",
-    f="""
-void count_alt(counter_t* ct, char* pkt, uint32_t* count) {
-        // update counter and return
-        (*ct)++;
-        *count = *ct;
-    }
-""",
-    initname="count_init",
-    init="""
-counter_t* count_init(){
-    counter_t* counter = mmap(NULL, sizeof(counter_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    *counter = 0;
-    return counter;
-}
-"""
-)()
+""")
+
+
 
 print_ct = Atom[None, ref[uint32_t], None](
     name="print_ct",
@@ -175,13 +158,13 @@ void print_ct(void* nostate, char* pkt, uint32_t* ct) {
     printf("count: %d\\n", *ct);
 }
 """
-)()
+)
 
-print = Atom[None, str_t, None](
+print_str = Atom[None, str_t, None](
     name="print",
     f="""
 void print(void* nostate, char* pkt, char* str) {
     printf("%s", str);
 }
 """
-)()
+)

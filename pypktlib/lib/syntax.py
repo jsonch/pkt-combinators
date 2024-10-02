@@ -24,6 +24,7 @@ class TyName(Ty):
 
 @dataclass(frozen=True)
 class Ptr(Ty):
+    """A pointer to an inner type."""
     inner_ty : Optional[Ty] = None
     __match_args__ = ("inner_ty")
     def __str__(self):

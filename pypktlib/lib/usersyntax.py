@@ -6,6 +6,15 @@ from copy import copy
 import syntax
 
 
+# generic metaclass generator for a class Foo with a 
+# constructor that takes a single string argument 
+# and wants Foo.xyz to evaluate to Foo("xyz")
+def DotMakerMeta(str_to_obj):
+    class DotMaker(type):
+        def __getattr__(self, attr):
+            return str_to_obj(attr)
+    return DotMaker
+
 class Var:
     """A pipe variable"""
     def __init__(self, s):
@@ -19,23 +28,15 @@ class Var:
     def to_ir(self):
         return syntax.var(self.s)
 
-class VarMaker(type):
-    """Makes variables from attribute references """
-    def __getattr__(cls, attr):
-        return Var(attr)
-
-class Meta(metaclass = VarMaker):
+class Meta(metaclass = DotMakerMeta(lambda name : Var(name))):
+    # TODO: combine with Var?
     """Lets you write string ids 
        without quotes. Meta.x evals to "x" """
     def __init__(self):
         pass
 
-class StateMaker(type):
-    """Makes a state name"""
-    def __getattr__(cls, attr):
-        return attr
 
-class State(metaclass = StateMaker):
+class State(metaclass = DotMakerMeta(lambda name : State(name))):
     next_anon = 0
     def __init__(self, name=None):
         State.next_anon += 1
@@ -53,6 +54,7 @@ class State(metaclass = StateMaker):
     def to_ir(self, ty):
         return syntax.Var(str(self), ty)
 
+Bank = State
 
 C = syntax.C # uninterpreted C code
 
@@ -62,37 +64,29 @@ A = TypeVar('A') # Arg types
 R = TypeVar('R') # Return type
 
 class Atom(Generic[S, A, R]):
-    """call this with state init args to construct an atom"""
+    # when converting into a concrete class, 
+    # store the concrete types.
+    concrete_types = None
+    @classmethod
+    def __class_getitem__(cls, params):
+        cls.concrete_types = params # (S, A, R)
+        return super().__class_getitem__(params)
+
     def __init__(self, 
         name = "some_f",
-        f = "// c function : void* -> char* -> A -> R -> () ",
-        init = None,
-        initname = None):
+        f = "// c function : void* -> char* -> A -> R -> () "):
+        # get state type from annotations
         self.fname = name
         self.f = f
-        self.init = init
-        self.initname = initname
-    def __call__(self, *args):
-        """take the arguments and return the initialized atom"""
-        orig_class = getattr(self, '__orig_class__', None)
-        state_type, arg_types, return_type = get_args(orig_class)
-        return InitializedAtom[state_type, arg_types, return_type](self.fname, self.f, self.init, self.initname, args)
-
-
-
-class InitializedAtom(Generic[S, A, R]):
-    """An initialized atom has been passed its constructor arguments"""
-    def __init__(self,
-        name = "some_f",
-        f = "// c function : void* -> char* -> A -> R -> () ",
-        init = None,
-        initname = None,
-        init_args = None):
-        self.fname = name
-        self.f = f
-        self.init = init
-        self.initname = initname
-        self.init_args = init_args
+        state_type, _, _ = self.concrete_types
+        if (state_type != None):
+            self.init = state_type.init
+            self.initname = state_type.initname
+            self.init_args = state_type.initargs
+        else:
+            self.init = None
+            self.initname = None
+            self.init_args = []
         self.instance_id = None # needed by AtomCall, held here for syntax convenience
     def typeargvals(self):
         """translate type arguments into values"""
@@ -160,6 +154,7 @@ class InitializedAtom(Generic[S, A, R]):
     def __getitem__(self, instance_id):
         # select which instance of the Atom you are using. 
         # by default, use the first instance. 
+        print("instance getitem")
         updated_atom = copy(self)
         updated_atom.instance_id = instance_id
         return updated_atom
@@ -170,7 +165,6 @@ class InitializedAtom(Generic[S, A, R]):
             return f'{self.fname}({args_str})'
         else:
             return self.fname
-
 
 updated_pipes = {}
 
