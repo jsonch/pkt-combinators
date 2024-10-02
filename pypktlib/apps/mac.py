@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-
-""" 
-A simple mac learner 
-# the mac learner looks up the destination address of each packet 
-# to find an output port. Then, it records the mapping from 
-# address -> port for the packets source address and ingress port.
-"""
-
 import sys, os, subprocess
 
 def append_git_root_subdir(sub_path):
@@ -19,6 +11,11 @@ def append_git_root_subdir(sub_path):
 
 append_git_root_subdir("pypktlib")
 
+from lib.compile import *
+from lib.usersyntax import *
+from lib.stdlib import * 
+
+
 # c helpers
 hashfun = C("""
 uint16_t calc_hash(uint8_t* key, uint32_t len, uint32_t maxval) {
@@ -30,8 +27,7 @@ uint16_t calc_hash(uint8_t* key, uint32_t len, uint32_t maxval) {
 }
 """)
 
-# mac table type and constructor. 
-# the constructor should really just be part of the type def...
+# mac table type and constructor
 mactbl_t = UserTy(
     name = "mactbl_t",
     cstr = """
@@ -40,17 +36,24 @@ typedef struct { int len; mactbl_entry_t *entries;} mactbl_t;
 """
 )
 
-mactbl_init = C("""
+# annoying: how do we know what parameters mactbl_state needs?
+# (to call the init function. This should actually have a type
+# that matches the init function, not the state itself)
+mactbl_state = AtomState(
+    ty = ref[mactbl_t],
+    name = "mactbl_init",
+    cstr = """
 mactbl_t* mactbl_init(int len) {
     mactbl_t* tbl = calloc(1, sizeof(mactbl_t));
     tbl->entries = calloc(len, sizeof(mactbl_entry_t));
     tbl->len = len;
     return tbl;
-}""")
+}"""
+)
 
-mactbl_get = Atom[ref[mactbl_t], ref[macaddr_t], ref[uint16_t]](
+mactbl_get = Atom[mactbl_state(1024), ref[macaddr_t], ref[uint16_t]](
     name="mactbl_get",
-    f="""
+    cstr="""
 void mactbl_get(mactbl_t* tbl, char * pkt, uint8_t (*dmac)[6], uint16_t* port) {
     uint32_t idx = calc_hash(*dmac, 6, tbl->len);
     for (int i = 0; i < tbl->len; i++) {
@@ -61,15 +64,11 @@ void mactbl_get(mactbl_t* tbl, char * pkt, uint8_t (*dmac)[6], uint16_t* port) {
     }
     *port = 0xFFFF; // Not found
 }
-""",
-    initname="mactbl_init",
-    init=str(mactbl_init)
-)(1024)
+""")
 
-
-mactbl_set = Atom[ref[mactbl_t], [ref[macaddr_t], ref[uint16_t]], None](
+mactbl_set = Atom[mactbl_state(1024), ref[macaddr_t], ref[uint16_t]](
     name="mactbl_set",
-    f="""
+    cstr="""
 void mactbl_set(mactbl_t* tbl, char * pkt, uint8_t (*dmac)[6], uint16_t* port) {
     uint32_t idx = calc_hash(*dmac, 6, tbl->len);
     for (int i = 0; i < tbl->len; i++) {
@@ -80,10 +79,7 @@ void mactbl_set(mactbl_t* tbl, char * pkt, uint8_t (*dmac)[6], uint16_t* port) {
         }
     }
 }
-""",
-    initname="mactbl_init",
-    init=str(mactbl_init)
-)(1024)
+""")
 
 
 # not bound to a specific location
@@ -94,8 +90,8 @@ raw_mac_pipe = Pipe(
     (Meta.dmac <- extract_dmac() %
     (Meta.smac <- extract_smac() %
     (Meta.ingress_port <- get_ingress_port() %
-    (Meta.out_port <- mactbl_get[State('mactbl')](Meta.dmac) %
-    (mactbl_set[State('mactbl')](Meta.smac, Meta.ingress_port) >>
+    (Meta.out_port <- mactbl_get[Bank.mactbl](Meta.dmac) %
+    (mactbl_set[Bank.mactbl](Meta.smac, Meta.ingress_port) >>
     Send(Meta.out_port))))))
 )
 
@@ -104,7 +100,7 @@ raw_mac_pipe = Pipe(
 singlecore_mac = Main(
     includes=[hashfun],
     pipes = {
-        eth0: At(Core["c0"], raw_mac_pipe)     
+        eth0: At(Core.c0, raw_mac_pipe)     
     }
 )
 

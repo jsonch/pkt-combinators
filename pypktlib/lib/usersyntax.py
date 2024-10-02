@@ -13,6 +13,9 @@ class UserTy():
         self.cstr = cstr
     def to_ir(self):
         return syntax.TyName(name=self.name, cstr = self.cstr)
+    def __str__(self) -> str:
+        # return the name of the type for embedding into c string
+        return self.name
 
 # pointer type. Maybe not necessary?
 T = TypeVar('T')
@@ -26,6 +29,9 @@ class Ptr(Generic[T]):
         type_var = self._type_arg
         ir_type_var = type_var.to_ir()
         return syntax.Ptr(ir_type_var)
+    def __str__(self):
+        # return the type name for embedding into c strings
+        return f"{str(self._type_arg)} *"
 ref = Ptr
 
 
@@ -83,14 +89,14 @@ class Core(metaclass=DotMakerMeta(lambda name : Core(name))):
 
 class AtomState():
     """A global state object to use in atoms"""
-    def __init__(self, ty, init=None, cstr=None, initargs = None):
+    def __init__(self, ty, name=None, cstr=None, initargs = None):
         self.ty = ty     # type of the state in mario
-        self.init = init # name of initializer function
+        self.name = name # name of initializer function
         self.cstr = cstr # implementation in c
         self.initargs = initargs
     def __call__(self, *args):
         """bind the initialization arguments for the constructor"""
-        return AtomState(self.ty, self.init, self.cstr, args)
+        return AtomState(self.ty, self.name, self.cstr, args)
     def to_ir(self):
         """Return a named type in the ir"""
         return self.ty.to_ir()
@@ -111,14 +117,14 @@ class Atom(Generic[S, A, R]):
 
     def __init__(self, 
         name = "some_f",
-        f = "// c function : void* -> char* -> A -> R -> () "):
+        cstr = "// c function : void* -> char* -> A -> R -> () "):
         # get state type from annotations
         self.fname = name
-        self.f = f
+        self.cstr = cstr
         state_type, _, _ = self.concrete_types
         if (state_type != None):
             self.init = state_type.cstr
-            self.initname = state_type.init
+            self.initname = state_type.name
             self.init_args = state_type.initargs
         else:
             self.init = None
@@ -158,7 +164,7 @@ class Atom(Generic[S, A, R]):
             ret_ty=return_type, 
             init_fn_name=self.initname, 
             fn_name=self.fname, 
-            fn=self.f, 
+            fn=self.cstr, 
             init=self.init, 
             init_args=[syntax.Val.from_int(a) for a in self.init_args])
         return rv

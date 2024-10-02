@@ -320,8 +320,11 @@ def state_decl_init_of_pipe(pipe : PipeBase):
             else:
              args = ", ".join([str(a) for a in atom.init_args])
              return [
-                 (f"{atom.state_ty} {state.name}_v;\n{atom.state_ty} * {state.name} = &{state.name}_v;",
-                 f"{state.name} = {atom.init_fn_name}({args});")
+                 (
+                     f"{atom.state_ty} * {state.name};",
+                    #  f"{atom.state_ty} {state.name}_v;\n{atom.state_ty} * {state.name} = &{state.name}_v;",
+                     f"{state.name} = {atom.init_fn_name}({args});"
+                 )
              ]
         case Seq(left, right):
             return state_decl_init_of_pipe(left) + state_decl_init_of_pipe(right)
@@ -392,9 +395,12 @@ def ty_defs_of_prog(irprog : IrProg):
 def atom_defs_of_pipe(pipe : PipeBase):
     match pipe:
         case Atom(state, atomdecl, args, return_var):
-            rv = [atomdecl.fn] # there is always a processing function
+            rv = []
             if (atomdecl.init != None): # there is optionally an init function
+                # it must go first because it might also contain 
+                #  type definitions used in the corresponding atom
                 rv = rv + [atomdecl.init]
+            rv = rv + [atomdecl.fn] # there is always a processing function
             return rv
         case Seq(left, right):
             return atom_defs_of_pipe(left) + atom_defs_of_pipe(right)
@@ -549,9 +555,9 @@ cfg_t cfg = {
 def irprog_to_dpdkcode(irprog : IrProg):
     user_helpers = "\n".join([str(c) for c in irprog.cstr])
     user_tys = "\n".join(ty_defs_of_prog(irprog))
+    state_init_str = state_init(irprog)
     atom_defs = "\n".join(atom_defs_of_prog(irprog))
     prog_ctx = prog_ctx_decl(irprog)
-    state_init_str = state_init(irprog)
     queue_init_str = queue_inits(irprog)
     n_locs, loc_procs_str = loc_procs(irprog)
     segment_function_str = "\n".join([segment_function(s) for s in irprog.segments])

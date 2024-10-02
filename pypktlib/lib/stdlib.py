@@ -69,7 +69,7 @@ typedef struct ip_t {
 # get ingress port. TODO
 get_ingress_port = Atom[None, None, ref[uint16_t]](
     name="get_ingress_port",
-    f="""
+    cstr="""
 void get_ingress_port(void * nostate, char * pkt, uint16_t* port) {
     // Logic to get ingress port from packet
     *port = 1; // Replace with actual logic
@@ -80,7 +80,7 @@ void get_ingress_port(void * nostate, char * pkt, uint16_t* port) {
 # get dst mac directly from pointer to start of eth pkt
 extract_dmac = Atom[None, None, ref[macaddr_t]](
     name="extract_dmac",
-    f="""
+    cstr="""
 void extract_dmac(void * nostate, char * pkt, macaddr_t* dmac) {
     memcpy(*dmac, pkt, 6);
 }
@@ -90,7 +90,7 @@ void extract_dmac(void * nostate, char * pkt, macaddr_t* dmac) {
 # get src mac directly from pointer to start of eth pkt
 extract_smac = Atom[None, None, ref[macaddr_t]](
     name="extract_smac",
-    f="""
+    cstr="""
 void extract_smac(void * nostate, char * pkt, macaddr_t* smac) {
     memcpy(*smac, pkt + 6, 6);
 }
@@ -100,7 +100,7 @@ void extract_smac(void * nostate, char * pkt, macaddr_t* smac) {
 # get eth type directly from pointer to start of eth pkt
 extract_etype = Atom[None, None, ref[uint16_t]](
     name="extract_etype",
-    f="""
+    cstr="""
 void extract_etype(void * nostate, char * pkt, uint16_t* etype) {
     *etype = *(uint16_t*)(pkt + 12);
 }
@@ -110,7 +110,7 @@ void extract_etype(void * nostate, char * pkt, uint16_t* etype) {
 # parse full eth header from eth pkt
 parse_eth = Atom[None, None,ref[eth_t]](
     name="parse_eth", 
-    f="""
+    cstr="""
 void parse_eth(void * nostate, char * pkt, eth_t* eth) {
     eth = (eth_t*) pkt;
 }
@@ -119,41 +119,85 @@ void parse_eth(void * nostate, char * pkt, eth_t* eth) {
 
 get_eth_ty = Atom[None, ref[eth_t], ref[uint16_t]](
     name="get_eth_ty",
-    f="""
+    cstr="""
 void get_eth_ty(void * nostate, char * pkt, eth_t* eth, uint16_t* ety) {
     *ety = eth->type;
 }
     """
 )
 
-counter_state = AtomState(
-    ty = ref[uint32_t],
-    init = "count_init",
+# a simple counter with 1 cell
+# initializes an array for demonstration
+counter_state_ty = UserTy(
+    name = "counter_state_t",
     cstr = """
-uint32_t* count_init(int len){
-    uint32_t * counter = mmap(NULL, len * sizeof(uint32_t *), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    for (int i = 0; i < len; i++){
-        counter[i] = 0;
-    }
-    return counter;
-}
+typedef struct counter_state_t {
+    uint32_t* counter;
+} counter_state_t;
 """)
+counter_state = AtomState(
+    ty = ref[counter_state_ty],
+    name = "count_init",
+    cstr = """
+counter_state_t* count_init(int len){
+    counter_state_t* state = malloc(sizeof(counter_state_t));
+    state->counter = mmap(NULL, len * sizeof(uint32_t *), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    for (int i = 0; i < len; i++){
+        state->counter[i] = 0;
+    }
+    return state;
+}""")
 
 counter = Atom[counter_state(8), None, ref[uint32_t]](
     name="count",
-    f="""
-void count(uint32_t* ct, char* pkt, uint32_t* count) {
+    cstr="""
+void count(counter_state_t* state, char* pkt, uint32_t* count) {
         // update counter and return
-        (*ct)++;
-        *count = *ct;
-    }
-""")
+        (*state->counter)++;
+        *count = *state->counter;
+    }""")
 
+
+# mac table type and internal entry type
+mactbl_t = UserTy(
+    name = "mactbl_t",
+    cstr = """
+typedef struct { uint8_t dmac[6]; uint16_t port; } mactbl_entry_t;
+typedef struct { int len; mactbl_entry_t *entries;} mactbl_t;
+"""
+)
+
+mactbl_state = AtomState(
+    ty = ref[mactbl_t],
+    name = "mactbl_init",
+    cstr = """
+mactbl_t* mactbl_init(int len) {
+    mactbl_t* tbl = calloc(1, sizeof(mactbl_t));
+    tbl->entries = calloc(len, sizeof(mactbl_entry_t));
+    tbl->len = len;
+    return tbl;
+}"""
+)
+
+mactbl_get = Atom[mactbl_state(1024), ref[macaddr_t], ref[uint16_t]](
+    name="mactbl_get",
+    cstr="""
+void mactbl_get(mactbl_t* tbl, char * pkt, uint8_t (*dmac)[6], uint16_t* port) {
+    uint32_t idx = calc_hash(*dmac, 6, tbl->len);
+    for (int i = 0; i < tbl->len; i++) {
+        if (memcmp(tbl->entries[idx+i].dmac, *dmac, 6) == 0) {
+            *port = tbl->entries[idx+i].port;
+            return;
+        }
+    }
+    *port = 0xFFFF; // Not found
+}
+""")
 
 
 print_ct = Atom[None, ref[uint32_t], None](
     name="print_ct",
-    f="""
+    cstr="""
 void print_ct(void* nostate, char* pkt, uint32_t* ct) {
     printf("count: %d\\n", *ct);
 }
@@ -162,7 +206,7 @@ void print_ct(void* nostate, char* pkt, uint32_t* ct) {
 
 print_str = Atom[None, str_t, None](
     name="print",
-    f="""
+    cstr="""
 void print(void* nostate, char* pkt, char* str) {
     printf("%s", str);
 }
