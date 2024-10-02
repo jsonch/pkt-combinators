@@ -158,43 +158,6 @@ void count(counter_state_t* state, char* pkt, uint32_t* count) {
     }""")
 
 
-# mac table type and internal entry type
-mactbl_t = UserTy(
-    name = "mactbl_t",
-    cstr = """
-typedef struct { uint8_t dmac[6]; uint16_t port; } mactbl_entry_t;
-typedef struct { int len; mactbl_entry_t *entries;} mactbl_t;
-"""
-)
-
-mactbl_state = AtomState(
-    ty = ref[mactbl_t],
-    name = "mactbl_init",
-    cstr = """
-mactbl_t* mactbl_init(int len) {
-    mactbl_t* tbl = calloc(1, sizeof(mactbl_t));
-    tbl->entries = calloc(len, sizeof(mactbl_entry_t));
-    tbl->len = len;
-    return tbl;
-}"""
-)
-
-mactbl_get = Atom[mactbl_state(1024), ref[macaddr_t], ref[uint16_t]](
-    name="mactbl_get",
-    cstr="""
-void mactbl_get(mactbl_t* tbl, char * pkt, uint8_t (*dmac)[6], uint16_t* port) {
-    uint32_t idx = calc_hash(*dmac, 6, tbl->len);
-    for (int i = 0; i < tbl->len; i++) {
-        if (memcmp(tbl->entries[idx+i].dmac, *dmac, 6) == 0) {
-            *port = tbl->entries[idx+i].port;
-            return;
-        }
-    }
-    *port = 0xFFFF; // Not found
-}
-""")
-
-
 print_ct = Atom[None, ref[uint32_t], None](
     name="print_ct",
     cstr="""
