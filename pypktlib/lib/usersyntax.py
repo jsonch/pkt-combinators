@@ -431,6 +431,17 @@ class SwitchPipe(PipeBase):
         cases_str += "}"
         return f"Switch({self.matchvar}, {cases_str})"
 
+
+class Move(PipeBase):
+    """Move to another location. Propagates forward but not backwards, 
+       i.e., 
+       ( move 1 >> (foo() >> bar()) ) -- foo and bar happens at 1
+       ((move 1 >> foo()) >> bar() ) -- foo happens at 1; bar also happens at 1
+       move 0 >> a() >> ((move 1 >> b()) >> c()) -- a happens at core 0, all the rest at core 1
+       and it doesn't matter how the parenthesis are nested in the core 1 sequence, its always
+       the same
+       """
+    pass
 class At(PipeBase):
     """locate a pipe's computation"""
     def __init__(self, loc, pipe):
