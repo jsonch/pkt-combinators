@@ -36,7 +36,19 @@ class Ptr(Ty):
 
 @dataclass(frozen=True)
 class ArgExp():
-    pass
+    """An argument to an atom"""
+    def base_name(self):
+        match self:
+            case CompoundVar(base, _):
+                return base.base_name()
+            case _:
+                return self.name
+    def base_rename(self, new_name):
+        match self:
+            case CompoundVar(base, _):
+                return replace(self, base=base.base_rename(new_name))
+            case _:
+                return replace(self, name=new_name)
 
 @dataclass(frozen=True)
 class Var(ArgExp):
@@ -51,7 +63,21 @@ class Var(ArgExp):
             return f"{self.name}:{self.ty}"
         else:
             return f"{self.name}"
+    def namestr(self):
+            return f"{self.name}"
 
+@dataclass(frozen=True)
+class CompoundVar(ArgExp):
+    """A compound variable is a field of a struct"""
+    base : Optional[ArgExp] = None
+    fieldname : Optional[str] = None
+    ty : Optional[Ty] = None
+    __match_args__ = ("base", "fieldname", "ty")
+    def __str__(self):
+        return f"{self.base}.{self.fieldname}"
+    def namestr(self):
+        return f"{self.base.namestr()}.{self.fieldname}"
+    
 @dataclass(frozen=True)
 class Val(ArgExp):
     """ A value is an int constant. """
@@ -139,6 +165,8 @@ def argty(arg : ArgExp, ty : Ty):
         return Val(arg.value, ty)
     elif (type(arg) == StrLiteral):
         return StrLiteral(arg.value)
+    elif (type(arg) == CompoundVar):
+        return replace(arg, ty=ty)
     else:
         print("type(arg): ", type(arg))
         print("arg: ", arg)

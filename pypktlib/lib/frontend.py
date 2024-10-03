@@ -54,12 +54,21 @@ def rename_vars(renames : dict[str, str], pipe : PipeBase):
                 if type(arg) in [Val, StrLiteral]:
                     renamed_args.append(arg) # do nothing
                 else:
-                    if arg.name in renames:
-                        renamed_args.append(renames[arg.name])
+                    # note: we only ever have to rename base names
+                    if arg.base_name() in renames:
+                        new_name =renames[arg.base_name()]
+                        new_arg = arg.base_rename(new_name)
+                        renamed_args.append(new_arg)
                     else:
+                        print("arg.name: >>", arg.name,"<<")
                         print("-----renames-----")
                         for k, v in renames.items():
                             print(f"{k} -> {v}")
+                            print(type(k))
+                            print(type(arg.name))
+                            print("looking for:", arg.name)
+                            if k == arg.name:
+                                print("found? why are we here?")
                         raise Exception(f"Unbound variable {str(arg.name)}")
             rv = replace(pipe, args=renamed_args)
             return rv
@@ -71,10 +80,10 @@ def rename_vars(renames : dict[str, str], pipe : PipeBase):
             else:
                 return pipe
         case Let(ret, left, right):
-            # for a Let, rename the return variable and replace all occurences in the next pipe
+            # for a Let, rename the return variable and replace all occurences in the next pipe            
             fresh_ret = fresh_var(ret)
             inner_renames = {r: f for r, f in renames.items() if r != ret.name}
-            inner_renames = {**inner_renames, **{ret.name: fresh_ret}} # add the fresh return name
+            inner_renames = {**inner_renames, **{ret.name: fresh_ret.name}} # add the fresh return name
             # print("let pipe: ", pretty_print(pipe))
             # print("---inner_renames---")
             # for k, v in inner_renames.items():

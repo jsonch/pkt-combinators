@@ -45,18 +45,30 @@ def DotMakerMeta(str_to_obj):
             return str_to_obj(attr)
     return DotMaker
 
+n_calls = 0
 class Meta(metaclass = DotMakerMeta(lambda name : Meta(name))):
     """A pipe variable"""
-    def __init__(self, s):
+    def __init__(self, s, prefix = None): # prefix is the variable that this is a field in
         self.s = s
+        self.prefix = prefix
     def __lt__(self, other):
         # complete a let
         other.name = self
         return other
+    def __getattr__(self, attr):
+        """Field access"""        
+        return Meta(attr, self)
     def __str__(self):
+        if (self.prefix != None):
+            return f"{self.prefix}.{self.s}"
         return self.s
     def to_ir(self):
-        return syntax.var(self.s)
+        if (self.prefix == None):
+            return syntax.Var(self.s)
+        else:
+            parent = self.prefix.to_ir()
+            return syntax.CompoundVar(parent, self.s)
+
 
 class Bank(metaclass = DotMakerMeta(lambda name : Bank(name))):
     """A state instance label"""
@@ -195,7 +207,7 @@ class Atom(Generic[S, A, R]):
                 if (type(a) == int):
                     _args.append(syntax.Val.from_int(a))
                 elif(type(a) == Meta):
-                    _args.append(syntax.Var(name=str(a)))
+                    _args.append(a.to_ir())
                 elif(type(a) == str):
                     _args.append(syntax.StrLiteral(a))
             # args = [str(a) for a in args]

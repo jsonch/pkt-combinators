@@ -228,12 +228,15 @@ def pipe_to_statement(pipe : PipeBase):
             argstrs = [state_arg.name, args[0].name]
             # pipe vars (including return vars) are all stored in the context
             for arg in args[1::]:
-                if (type(arg)) == Var:
-                    argstrs.append(f"({arg.ty} *)&(ctx->{arg.name})")
+                if (type(arg)) in [Var, CompoundVar]:
+                    argstrs.append(f"({arg.ty} *)&(ctx->{arg.namestr()})")
+                elif (type(arg)) == CompoundVar:
+                    argstrs.append(f"({arg.ty} *)&(ctx->{arg.namestr()})")
                 elif (type(arg)) == Val:
                     argstrs.append(f"{arg.value}")
                 elif (type(arg)) == StrLiteral:
                     argstrs.append(str(arg))
+                
                 else:
                     print(type(arg))
                     print(arg)
