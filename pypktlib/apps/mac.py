@@ -36,11 +36,7 @@ typedef struct { int len; mactbl_entry_t *entries;} mactbl_t;
 """
 )
 
-# annoying: how do we know what parameters mactbl_state needs?
-# (to call the init function. This should actually have a type
-# that matches the init function, not the state itself)
-mactbl_state = AtomState(
-    ty = ref[mactbl_t],
+mactbl_state = StateInit[int_t, ref[mactbl_t]](
     name = "mactbl_init",
     cstr = """
 mactbl_t* mactbl_init(int len) {
@@ -50,8 +46,8 @@ mactbl_t* mactbl_init(int len) {
     return tbl;
 }"""
 )
-
-mactbl_get = Atom[mactbl_state(1024), ref[macaddr_t], ref[uint16_t]](
+mactbl_get = Atom[ref[mactbl_t], ref[macaddr_t], ref[uint16_t]](
+    state = mactbl_state(1024),
     name="mactbl_get",
     cstr="""
 void mactbl_get(mactbl_t* tbl, char * pkt, uint8_t (*dmac)[6], uint16_t* port) {
@@ -66,7 +62,8 @@ void mactbl_get(mactbl_t* tbl, char * pkt, uint8_t (*dmac)[6], uint16_t* port) {
 }
 """)
 
-mactbl_set = Atom[mactbl_state(1024), ref[macaddr_t], ref[uint16_t]](
+mactbl_set = Atom[ref[mactbl_t], ref[macaddr_t], ref[uint16_t]](
+    state = mactbl_state(1024),
     name="mactbl_set",
     cstr="""
 void mactbl_set(mactbl_t* tbl, char * pkt, uint8_t (*dmac)[6], uint16_t* port) {
@@ -96,7 +93,7 @@ raw_mac_pipe = Pipe(
 )
 
 
-# single core version
+# single core program
 singlecore_mac = Main(
     includes=[hashfun],
     pipes = {

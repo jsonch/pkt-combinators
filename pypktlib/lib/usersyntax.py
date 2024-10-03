@@ -32,6 +32,7 @@ class Ptr(Generic[T]):
     def __str__(self):
         # return the type name for embedding into c strings
         return f"{str(self._type_arg)} *"
+
 ref = Ptr
 
 
@@ -76,9 +77,6 @@ class Bank(metaclass = DotMakerMeta(lambda name : Bank(name))):
     def to_ir(self, ty):
         return syntax.Var(str(self), ty)
 
-class LocMaker(type):
-    def __getitem__(cls, key):
-        return key
 class Core(metaclass=DotMakerMeta(lambda name : Core(name))):
     def __init__(self, name=None):
         self.name = name
@@ -86,20 +84,28 @@ class Core(metaclass=DotMakerMeta(lambda name : Core(name))):
         return self.name
 
 
-
-class AtomState():
-    """A global state object to use in atoms"""
-    def __init__(self, ty, name=None, cstr=None, initargs = None):
-        self.ty = ty     # type of the state in mario
-        self.name = name # name of initializer function
-        self.cstr = cstr # implementation in c
-        self.initargs = initargs
+I = TypeVar('I')
+O = TypeVar('O')
+# initializer for an atom's state
+class StateInit(Generic[I, O]):
+    """Initializer for an atom's state"""
+    concrete_types = None
+    @classmethod
+    def __class_getitem__(cls, params):
+        cls.concrete_types = params # (S, A, R)
+        return super().__class_getitem__(params)
+    def __init__(self, name, cstr, args=None):
+        self.name = name
+        self.cstr = cstr
+        self.args = args
     def __call__(self, *args):
-        """bind the initialization arguments for the constructor"""
-        return AtomState(self.ty, self.name, self.cstr, args)
-    def to_ir(self):
-        """Return a named type in the ir"""
-        return self.ty.to_ir()
+        """Call populates the arguments"""
+        tin, tout = self.concrete_types        
+        return StateInit[tin, tout](self.name, self.cstr, args)
+    def ret_ty(self):
+        _, rty = self.concrete_types
+        return rty
+
 
 
 S = TypeVar('S') # State type
@@ -117,15 +123,20 @@ class Atom(Generic[S, A, R]):
 
     def __init__(self, 
         name = "some_f",
-        cstr = "// c function : void* -> char* -> A -> R -> () "):
+        cstr = "// c function : void* -> char* -> A -> R -> () ",
+        state = None):
         # get state type from annotations
         self.fname = name
         self.cstr = cstr
         state_type, _, _ = self.concrete_types
         if (state_type != None):
-            self.init = state_type.cstr
-            self.initname = state_type.name
-            self.init_args = state_type.initargs
+            if (str(state_type) != str((state.ret_ty()))):
+                print("type error: atom's state type is different from initializer's return type")
+                print(f"state type = {state_type}; state.ret_ty = {state.ret_ty()}")
+                exit(1)
+            self.init = state.cstr
+            self.initname = state.name
+            self.init_args = state.args
         else:
             self.init = None
             self.initname = None

@@ -11,30 +11,19 @@ eth1 = (1, 0)
 
 
 ### types
-void_t = UserTy(
-    name = "void"
-)
-uint8_t = UserTy(
-    name = "uint8_t"
+int_t = UserTy(name = "int")
+void_t = UserTy(name = "void")
+uint8_t = UserTy(name = "uint8_t")
+uint16_t = UserTy(name = "uint16_t")
+uint32_t = UserTy(name = "uint32_t")
+str_t = UserTy(
+    name = "str_t",
+    cstr = "typedef char* str_t;"
 )
 macaddr_t = UserTy(
     name = "macaddr_t",
     cstr = "typedef uint8_t macaddr_t[6];"
 )
-
-
-uint16_t = UserTy(
-    name = "uint16_t"
-)
-
-uint32_t = UserTy(
-    name = "uint32_t"
-)
-str_t = UserTy(
-    name = "str_t",
-    cstr = "typedef char* str_t;"
-)
-
 eth_t = UserTy(
     name = "eth_t",
     cstr = 
@@ -46,7 +35,6 @@ typedef struct eth_t {
 } __attribute__((packed)) eth_t;
 """
 )
-
 ip_t = UserTy(
     name = "ip_t",
     cstr = 
@@ -126,8 +114,6 @@ void get_eth_ty(void * nostate, char * pkt, eth_t* eth, uint16_t* ety) {
     """
 )
 
-# a simple counter with 1 cell
-# initializes an array for demonstration
 counter_state_ty = UserTy(
     name = "counter_state_t",
     cstr = """
@@ -135,8 +121,7 @@ typedef struct counter_state_t {
     uint32_t* counter;
 } counter_state_t;
 """)
-counter_state = AtomState(
-    ty = ref[counter_state_ty],
+make_counter = StateInit[uint32_t, ref[counter_state_ty]](
     name = "count_init",
     cstr = """
 counter_state_t* count_init(int len){
@@ -148,14 +133,18 @@ counter_state_t* count_init(int len){
     return state;
 }""")
 
-counter = Atom[counter_state(8), None, ref[uint32_t]](
+counter = Atom[ref[counter_state_ty], None, ref[uint32_t]](
+    state=make_counter(1),
     name="count",
     cstr="""
 void count(counter_state_t* state, char* pkt, uint32_t* count) {
         // update counter and return
         (*state->counter)++;
         *count = *state->counter;
-    }""")
+    }"""
+)
+
+
 
 
 print_ct = Atom[None, ref[uint32_t], None](
