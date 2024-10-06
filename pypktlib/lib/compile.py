@@ -5,13 +5,14 @@ from .usersyntax import *
 # import syntax
 from . import frontend
 from . import backend
+from . import dpdk_printer
 
 def compile_dpdk(pipe:PipeBase):
     """Compile a pipe defined with the usersyntax constructors to DPDK code."""
     ir_pipe = pipe.to_ir()
     pipe_prog = frontend.frontend_passes(ir_pipe)
     segment_prog = backend.backend_passes(pipe_prog)
-    return backend.irprog_to_dpdkcode(segment_prog)
+    return dpdk_printer.irprog_to_dpdkcode(segment_prog)
 
 
 def build(pipe, build_dir):
@@ -25,5 +26,5 @@ def build(pipe, build_dir):
     with open(out_fn, 'w') as f:
         f.write(prog_str)
     # add the makefile and run script
-    backend.copy_dpdk_resources(build_dir)
+    dpdk_printer.copy_dpdk_resources(build_dir)
     
