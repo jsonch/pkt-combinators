@@ -91,10 +91,8 @@ def rename_vars(renames : dict[str, str], pipe : PipeBase):
             rv = replace (pipe, ret=fresh_ret, left=rename_vars(renames, left), right=rename_vars(inner_renames, right))
             return rv
         case Switch(var, cases):
-            if var.name in renames:
-                new_var = renames[var.name]
-            else:
-                raise Exception(f"Unbound variable in switch expression {str(var.name)}")
+            new_name =renames[var.base_name()]
+            new_var = var.base_rename(new_name)
             new_cases = {}
             for (k, inner_pipe) in cases.items():
                 new_pipe = rename_vars(renames, inner_pipe)
