@@ -261,6 +261,19 @@ class At(PipeBase):
     __match_args__ = ("location","inner_pipe")
 
 @dataclass(frozen=True)
+class MoveFrontend(PipeBase):
+    """
+    A pipe that moves a packet from one location to another.
+    """
+    location : Optional[str] = None
+    __match_args__ = ("location",)
+
+@dataclass(frozen=True)
+class Noop(PipeBase):
+    """ do nothing """
+    __match_args__ = ()
+
+@dataclass(frozen=True)
 class Switch(PipeBase):
     """
     A pipe that switches on a bound variable, executing the 
@@ -391,6 +404,8 @@ def pretty_print(pipe : PipeBase, indent=0):
                 return f"fwd{loc_tag(pipe)}({dest})"
             else:
                 return f"drop{loc_tag(pipe)}()"
+        case Noop():
+            return f"Noop"
         case Switch(var, cases):
             case_strs = [f"{k}:({newtab(indent+4)}{pretty_print(v, indent+4)}{newtab(indent+2)})" for k, v in cases.items()]
             indent_str = newtab(indent+2)

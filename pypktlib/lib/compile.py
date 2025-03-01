@@ -14,7 +14,6 @@ def compile_dpdk(pipe:PipeBase):
     segment_prog = backend.backend_passes(pipe_prog)
     return dpdk_printer.irprog_to_dpdkcode(segment_prog)
 
-
 def build(pipe, build_dir):
     """Build a pipe and write it to the given directory"""
     # make the directory
@@ -27,4 +26,5 @@ def build(pipe, build_dir):
         f.write(prog_str)
     # add the makefile and run script
     dpdk_printer.copy_dpdk_resources(build_dir)
+    print("done")
     

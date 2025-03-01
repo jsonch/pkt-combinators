@@ -115,6 +115,9 @@ def pipe_to_segments(prog: IrProg, cur_seg_name : str, bound_vars : list[Var], p
         case Exit(_):
             # exit pipes don't change the segment or bind variables. No change.
             return prog, cur_seg_name, pipe
+        case Noop():
+            print("error: got a noop in pipe_to_segment.")
+            exit(1)
         case Switch(_, cases):
             # switch pipes don't change the segment or bind variables.
             # Also, the switch is inlined, so we don't need to know the names of the segments that 
@@ -131,6 +134,9 @@ def pipe_to_segments(prog: IrProg, cur_seg_name : str, bound_vars : list[Var], p
                 prog, _, new_pipe = pipe_to_segments(prog, cur_seg_name, bound_vars, v, rx_dev=k)
                 new_pipes.append((k, new_pipe))
             return prog, cur_seg_name, replace(pipe, pipes=new_pipes)
+        case MoveFrontend(_):
+            print("unexpected: a move from the frontend. Should be converted to At.")
+            exit()
         
             
 def pipe_to_ir(pipe : PipeBase):
@@ -148,9 +154,12 @@ def pipe_to_ir(pipe : PipeBase):
     return prog
 
 
+        
+
 def backend_passes(pipe : PipeBase):
     # 6. convert to segment-graph IR
-    return pipe_to_ir(pipe)
+    rv = pipe_to_ir(pipe)
+    return rv
 
 
 #### DPDK code generation

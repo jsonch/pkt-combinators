@@ -97,7 +97,7 @@ raw_mac_pipe = Pipe(
 singlecore_mac = Main(
     includes=[hashfun],
     pipes = {
-        eth0: At(Core.c0, raw_mac_pipe)     
+        eth0: (Move(Core.c0) >> raw_mac_pipe)     
     }
 )
 

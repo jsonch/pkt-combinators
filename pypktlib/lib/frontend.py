@@ -15,6 +15,10 @@ def recurse(f, pipe):
             return replace(pipe, inner_pipe=f(inner_pipe))
         case Exit(_):
             return pipe
+        case MoveFrontend(_):
+            return pipe
+        case Noop():
+            return pipe
         case Switch(_, cases):
             new_cases = {k: f(v) for k, v in cases.items()}
             return replace(pipe, cases=new_cases)
@@ -22,8 +26,9 @@ def recurse(f, pipe):
             new_pipes = [(k, f(v)) for k, v in pipes]
             return replace(pipe, pipes=new_pipes)
         case _: 
-            print(type(pipe))
             print("ERROR IN RECURSE!")
+            print("pipe type:", type(pipe))
+
             exit(1)
 
 
@@ -144,6 +149,9 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
             else:
                 print("Error: exit pipe in a pipe that expects a return value from it.")
                 exit(1)
+        case Noop():
+            return cur_ret, pipe
+
         case Switch(_, cases):
             new_cases = {}
             ret_tys = []
@@ -160,6 +168,9 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
         case At(_, inner_pipe):
             ret_ty, inner_pipe = type_pipeline_vars(cur_ret, inner_pipe)
             return ret_ty, replace(pipe, inner_pipe=inner_pipe)
+        # moving has no effect on the return variable or the move
+        case MoveFrontend(_):
+            return cur_ret, pipe
         case MainPipe(_, pipes):
             new_pipes = []
             for k, v in pipes:
@@ -307,8 +318,13 @@ def locate_pipes(pipe : PipeBase, cur_loc : str):
             # its own location starts at the current location, and ends at the specified location
             new_inner = locate_pipes(inner_pipe, location)
             return replace(pipe, inner_pipe=new_inner, start=cur_loc, end=new_inner.end)
+        case MoveFrontend(location):
+            # a move pipe changes the location of the pipe and does nothing else.
+            return replace(pipe, start=cur_loc, end=location)
         case Exit(_):
             # TODO: design choice: should an exit change the location of the pipe?
+            return replace(pipe, start=cur_loc, end=cur_loc)
+        case Noop():
             return replace(pipe, start=cur_loc, end=cur_loc)
         case Switch(_, cases):
             # a switch pipe starts here, but has no end location unless all the 
@@ -354,11 +370,69 @@ def explicit_packet_args(pipe):
     match pipe:
         case Atom(_, atom, args, ret):
             return replace(pipe, args=[packet_arg]+args)
-        case _: return recurse(explicit_packet_args, pipe)
+        case _: 
+            return recurse(explicit_packet_args, pipe)
+
+def move_to_at(pipe):
+    match pipe:
+        case MoveFrontend(location):
+            return At(location=location, inner_pipe=Noop())
+        case _: 
+            return recurse(move_to_at, pipe)
+
+def delete_noops(pipe: PipeBase):
+    """delete noops before backend elimination. I think they should only ever occur at the beginnign of a sequence, 
+        due to the various at transformation and inlining passes."""    
+    match pipe:
+        case Seq(left, right):
+            left = delete_noops(left)
+            right = delete_noops(right)
+            if type(left) == Noop:
+                return right
+            elif type(right) == Noop:
+                return left
+            else:
+                return pipe
+        case Let(ret, left, right):
+            left = delete_noops(left)
+            right = delete_noops(right)
+            if type(left) == Noop:
+                print("ERROR in [delete_noops] Found a noop pipe in the inner expr of a Let")
+                exit(1)
+            elif type(right) == Noop:
+                return left # can just drop right
+            else:
+                return pipe
+
+def delete_noops(pipe: PipeBase):
+    """Delete noops before backend elimination. I think they should only ever occur in a sequence, 
+        due to the various at transformation and inlining passes."""    
+    match pipe:
+        case Seq(left, right):
+            left = delete_noops(left)
+            right = delete_noops(right)
+            if type(left) == Noop:
+                return right
+            elif type(right) == Noop:
+                return left
+            else:
+                return pipe
+        case _:
+            return recurse(delete_noops, pipe)
+
+
+"""
+Notes: 
+    move_to_at and delete_noops are temporary hacks that we can probably
+    eliminate once we figure out the direct way to turn a program 
+    that uses moves into segment programs.
+"""
 
 def frontend_passes(pipe):
+    # 0. convert moves to ats
+    ip = move_to_at(pipe)
     # 1. instantiate the pipe (name for state variables)
-    ip = instantiate(pipe)
+    ip = instantiate(ip)
     # 2. names for variables
     ip = rename_vars({}, ip)
     # 3. bind return variables to atoms
@@ -372,6 +446,9 @@ def frontend_passes(pipe):
     ip = self_at_elimination(ip)
     # 6. add explicit packet arguments (this can happen anywhere)
     ip = explicit_packet_args(ip)
+    # 7. delete noops. They should only occur at the start of a sequence, because 
+    #    of the various at transformation and inlining passes.
+    ip = delete_noops(ip)
     # program should now be ready for conversion to IR in backend.py
     return ip
 

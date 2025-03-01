@@ -20,7 +20,7 @@ from lib.stdlib import *
 parse_ct_print = Main(
     pipes = {
         eth0:At(Core.c0,
-            Meta.eth <- parse_eth()             %
+            Meta.eth <- parse_eth()              %
             (Meta.ety <- get_eth_ty(Meta.eth)    %
             Switch(Meta.ety)({
                 0x0800: (
@@ -33,6 +33,26 @@ parse_ct_print = Main(
         )
     }
 )
+# build(parse_ct_print, "parse_ct_print")
 
+# try it with a move instead of an At
+parse_ct_print_move = Main(
+    pipes = {
+        eth0:
+            (
+                Move(Core.c0) >>
+                Meta.eth <- parse_eth()              %
+                (Meta.ety <- get_eth_ty(Meta.eth)    %
+                Switch(Meta.ety)({
+                    0x0800: (
+                        Meta.ct <- counter[Bank.foo]() %
+                        (print_str("ip ") >> print_ct(Meta.ct) >> Exit(eth0))), 
+                    None:(
+                        Meta.ct <- counter[Bank.bar]() %
+                        (print_str("not ip ") >> print_ct(Meta.ct) >> Exit(eth0)))
+                }))
+            )
+    }
+)
 
-build(parse_ct_print, "parse_ct_print")
+build(parse_ct_print_move, "parse_ct_print_move")

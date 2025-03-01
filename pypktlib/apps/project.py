@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # simple test for projections (struct fields) as 
 # atom arguments
+# supporting nested structs, too!
 import sys, os, subprocess
 
 def append_git_root_subdir(sub_path):
@@ -46,9 +47,9 @@ void print_int(void * nostate, char * pkt, int* n) {
 """)
 nested_struct = Main(
     pipes = {
-        eth0:At(Core.c0,
+        eth0:Move(Core.c0) >>
             Meta.nested <- set_inner()             %
-            print_int(Meta.nested.inner.x))
+            print_int(Meta.nested.inner.x)
             }
 )
 

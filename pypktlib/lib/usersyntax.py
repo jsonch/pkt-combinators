@@ -441,7 +441,15 @@ class Move(PipeBase):
        and it doesn't matter how the parenthesis are nested in the core 1 sequence, its always
        the same
        """
-    pass
+    def __init__(self, loc):
+        self.loc = loc
+    def __str__(self):
+        return f"Move({str(self.loc)})"
+    def __repr__(self):
+        return f"Move({repr(self.loc)})"
+    def to_ir(self):
+        return syntax.MoveFrontend(location=Core.to_ir(self.loc))
+
 class At(PipeBase):
     """locate a pipe's computation"""
     def __init__(self, loc, pipe):
