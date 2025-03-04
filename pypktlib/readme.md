@@ -8,7 +8,8 @@ example usage: `./parse_count_print.py` -- compile a program that extracts an et
 **Examples**
 - `apps/parse_count_print.py` is a minimal example. It should work.
 - `apps/mac.py` and `project.py` are other examples that should compile to working dpdk-c.
-**Source code**
+  
+**Compiler code**
 - `compile.py` has the main compile function, `build(pipe, build_dir)`
 - `usersyntax.py` has the user-facing syntax, the "smart constructors", and translation to the core AST.
     - `usersyntax.PipeBase` is the parent type of all source mario programs.
