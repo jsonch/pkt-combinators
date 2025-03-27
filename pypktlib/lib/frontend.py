@@ -1,6 +1,7 @@
+"""frontend passes"""
 from .syntax import *
+import copy
 
-#### frontend passes
 def recurse(f, pipe):
     """helper to recurse on cases that do nothing"""
     match pipe:
@@ -14,12 +15,21 @@ def recurse(f, pipe):
             return replace(pipe, inner_pipe=f(inner_pipe))
         case Exit(_):
             return pipe
+        case MoveFrontend(_):
+            return pipe
+        case Noop():
+            return pipe
         case Switch(_, cases):
             new_cases = {k: f(v) for k, v in cases.items()}
             return replace(pipe, cases=new_cases)
-        case NicDeliver(_, pipes): 
+        case MainPipe(_, pipes): 
             new_pipes = [(k, f(v)) for k, v in pipes]
             return replace(pipe, pipes=new_pipes)
+        case _: 
+            print("ERROR IN RECURSE!")
+            print("pipe type:", type(pipe))
+
+            exit(1)
 
 
 def instantiate(pipe : PipeBase):
@@ -30,7 +40,7 @@ def instantiate(pipe : PipeBase):
     match pipe: 
         case Atom(None, atom, args, return_var):
             if (atom.state_ty != None):
-                state_var = varty(fresh_name(name(atom)+"_state"), atom.state_ty)
+                state_var = Var(name=fresh_name(name(atom)+"_state"), ty=atom.state_ty)
                 return replace(pipe, state=state_var)
             else:
                 return pipe
@@ -38,33 +48,66 @@ def instantiate(pipe : PipeBase):
 
 def rename_vars(renames : dict[str, str], pipe : PipeBase):
     """rename variables in let bindings to prevent shadowing"""
-    recurse_with_renames = lambda p: rename_vars(renames, p)
+    def recurse_with_renames(p):
+        rv = rename_vars(renames, p)
+        return rv
     match pipe:
         case Atom(_, _, args, _):
             # for an Atom, rename the arguments to the updated names
             renamed_args = []
             for arg in args:
-                if arg in renames:
-                    renamed_args.append(renames[arg])
+                if type(arg) in [Val, StrLiteral]:
+                    renamed_args.append(arg) # do nothing
                 else:
-                    raise Exception(f"Unbound variable {str(arg.name)}")
-            return replace(pipe, args=renamed_args)
-        case Let(ret, left, right):
-            # for a Let, rename the return variable and replace all occurences in the next pipe
-            fresh_ret = fresh_var(ret)
-            inner_renames = {r: f for r, f in renames.items() if r != ret}
-            inner_renames = {**inner_renames, **{ret: fresh_ret}} # add the fresh return name
-            return replace (pipe, ret=fresh_ret, left=rename_vars(renames, left), right=rename_vars(inner_renames, right))
-        case Switch(var, cases):
-            if var in renames:
-                new_var = renames[var]
+                    # note: we only ever have to rename base names
+                    if arg.base_name() in renames:
+                        new_name =renames[arg.base_name()]
+                        new_arg = arg.base_rename(new_name)
+                        renamed_args.append(new_arg)
+                    else:
+                        print("arg.name: >>", arg.name,"<<")
+                        print("-----renames-----")
+                        for k, v in renames.items():
+                            print(f"{k} -> {v}")
+                            print(type(k))
+                            print(type(arg.name))
+                            print("looking for:", arg.name)
+                            if k == arg.name:
+                                print("found? why are we here?")
+                        raise Exception(f"Unbound variable {str(arg.name)}")
+            rv = replace(pipe, args=renamed_args)
+            return rv
+        case Exit(dest):
+            rename_str_keys = {str(k): v for k, v in renames.items()}
+            if dest.devnum != None and str(dest.devnum) in rename_str_keys:
+                new_dest = replace(dest, devnum=rename_str_keys[str(dest.devnum)])
+                return replace(pipe, dest=new_dest)
             else:
-                raise Exception(f"Unbound variable in switch expression {str(var.name)}")
-            new_cases = {k:recurse(recurse_with_renames, pipe) for (k, pipe) in cases.items()}
-            return replace(pipe, var=new_var, cases=new_cases)
+                return pipe
+        case Let(ret, left, right):
+            # for a Let, rename the return variable and replace all occurences in the next pipe            
+            fresh_ret = fresh_var(ret)
+            inner_renames = {r: f for r, f in renames.items() if r != ret.name}
+            inner_renames = {**inner_renames, **{ret.name: fresh_ret.name}} # add the fresh return name
+            # print("let pipe: ", pretty_print(pipe))
+            # print("---inner_renames---")
+            # for k, v in inner_renames.items():
+            #     print(f"{k} -> {v}")
+            rv = replace (pipe, ret=fresh_ret, left=rename_vars(renames, left), right=rename_vars(inner_renames, right))
+            return rv
+        case Switch(var, cases):
+            new_name =renames[var.base_name()]
+            new_var = var.base_rename(new_name)
+            new_cases = {}
+            for (k, inner_pipe) in cases.items():
+                new_pipe = rename_vars(renames, inner_pipe)
+                new_cases[k] = new_pipe
+            rv = replace(pipe, var=new_var, cases=new_cases)
+            return rv
         case _: 
             # for all other cases, recurse with the same renames
-            return recurse(recurse_with_renames, pipe)
+            rv = recurse(recurse_with_renames, pipe)
+            return rv
 
 def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
     """Set each atom's return variable and infer types for all pipe variables. 
@@ -75,7 +118,7 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
         case Atom(_, atom, args, None):
             new_args = []
             for arg, ty in zip(args, atom.arg_tys):
-                new_args.append(varty(arg, ty))
+                new_args.append(argty(arg, ty))
             if (atom.ret_ty == None):
                 if (cur_ret != None):
                     print(f"Error: atom {atom.name} has no return type, but is used in a pipe that expects a return value from it.")
@@ -84,9 +127,9 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
                     return None, replace (pipe, args=new_args)
             else: # the atom has a return type, so we will create a return variable no matter what.
                 if (cur_ret == None):
-                    cur_ret = varty(fresh_name("_unused"+name(atom)+"_ret"), atom.ret_ty)
+                    cur_ret = Var(name=fresh_name("_unused"+name(atom)+"_ret"), ty=atom.ret_ty)
                 else:
-                    cur_ret = varty(cur_ret.name, atom.ret_ty)
+                    cur_ret = argty(cur_ret, atom.ret_ty)
                 return atom.ret_ty, replace (pipe, args=new_args, return_var=cur_ret)
         # case: sequence of two pipes. Only the return of the second pipe is used.
         case Seq(left, right):
@@ -96,7 +139,7 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
         # case: let binding. The return variable of the left pipe is bound to the name in the let binding.
         case Let(ret, left, right):
             left_ret_ty, left = type_pipeline_vars(ret, left)
-            ret = varty(ret.name, left_ret_ty)
+            ret = argty(ret, left_ret_ty)
             right_ret_ty, right = type_pipeline_vars(cur_ret, right)
             return right_ret_ty, replace(pipe, ret=ret, left=left, right=right)
         # case: change the pipe's location -- this has no effect on the return variables
@@ -106,6 +149,9 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
             else:
                 print("Error: exit pipe in a pipe that expects a return value from it.")
                 exit(1)
+        case Noop():
+            return cur_ret, pipe
+
         case Switch(_, cases):
             new_cases = {}
             ret_tys = []
@@ -122,7 +168,10 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
         case At(_, inner_pipe):
             ret_ty, inner_pipe = type_pipeline_vars(cur_ret, inner_pipe)
             return ret_ty, replace(pipe, inner_pipe=inner_pipe)
-        case NicDeliver(_, pipes):
+        # moving has no effect on the return variable or the move
+        case MoveFrontend(_):
+            return cur_ret, pipe
+        case MainPipe(_, pipes):
             new_pipes = []
             for k, v in pipes:
                 ret_ty, new_pipe = type_pipeline_vars(cur_ret, v)
@@ -145,14 +194,14 @@ def switch_continuations(pipe : PipeBase):
         case Seq(left, right):
             new_right = switch_continuations(right)
             if (isinstance(left, Switch)):
-                new_cases = {k: seq(switch_continuations(v), new_right) for k, v in left.cases.items()}
+                new_cases = {k: Seq(left=switch_continuations(v), right=new_right) for k, v in left.cases.items()}
                 return replace(left, cases=new_cases)
             else:
                 return replace(pipe, left=switch_continuations(left), right=new_right)
-        case Let(var, left, right):
+        case Let(ret, left, right):
             new_right = switch_continuations(right)
             if (isinstance(left, Switch)):
-                new_cases = {k: let(var, v, new_right) for k, v in left.cases.items()}
+                new_cases = {k: Let(ret=ret, left=v, right=new_right) for k, v in left.cases.items()}
                 return replace(left, cases=new_cases)
             else:
                 return replace(pipe, left=switch_continuations(left), right=new_right)
@@ -190,14 +239,14 @@ def at_continuations(pipe : PipeBase):
             left = at_continuations(left)
             right = at_continuations(right)
             if (isinstance(left, At)):
-                return replace(left, inner_pipe=seq(left.inner_pipe, right))
+                return replace(left, inner_pipe=Seq(left=left.inner_pipe, right=right))
             else:
                 return replace(pipe, left=left, right=right)
         case Let(var, left, right):
             left = at_continuations(left)
             right = at_continuations(right)
             if (isinstance(left, At)):
-                return replace(left, inner_pipe=let(var, left.inner_pipe, right))
+                return replace(left, inner_pipe=Let(ret=var, left=left.inner_pipe, right=right))
             else:
                 return replace(pipe, left=left, right=right)
         case _:
@@ -269,8 +318,13 @@ def locate_pipes(pipe : PipeBase, cur_loc : str):
             # its own location starts at the current location, and ends at the specified location
             new_inner = locate_pipes(inner_pipe, location)
             return replace(pipe, inner_pipe=new_inner, start=cur_loc, end=new_inner.end)
+        case MoveFrontend(location):
+            # a move pipe changes the location of the pipe and does nothing else.
+            return replace(pipe, start=cur_loc, end=location)
         case Exit(_):
             # TODO: design choice: should an exit change the location of the pipe?
+            return replace(pipe, start=cur_loc, end=cur_loc)
+        case Noop():
             return replace(pipe, start=cur_loc, end=cur_loc)
         case Switch(_, cases):
             # a switch pipe starts here, but has no end location unless all the 
@@ -282,10 +336,10 @@ def locate_pipes(pipe : PipeBase, cur_loc : str):
                 return replace(pipe, cases=new_cases, start=cur_loc, end=case_end_locs[0])
             else:
                 return replace(pipe, cases=new_cases, start=cur_loc, end=multi_end_loc)
-        case NicDeliver(_, pipes):
+        case MainPipe(_, pipes):
             # a nic d
             if (cur_loc != start_loc):
-                print("Error: NicDeliver pipe in a non-start location.")
+                print("Error: MainPipe pipe in a non-start location.")
                 exit(1)
             new_pipes = [(k, locate_pipes(v, cur_loc)) for k, v in pipes]
             pipe_end_locs = [v.end for _, v in new_pipes]
@@ -316,11 +370,69 @@ def explicit_packet_args(pipe):
     match pipe:
         case Atom(_, atom, args, ret):
             return replace(pipe, args=[packet_arg]+args)
-        case _: return recurse(explicit_packet_args, pipe)
+        case _: 
+            return recurse(explicit_packet_args, pipe)
+
+def move_to_at(pipe):
+    match pipe:
+        case MoveFrontend(location):
+            return At(location=location, inner_pipe=Noop())
+        case _: 
+            return recurse(move_to_at, pipe)
+
+def delete_noops(pipe: PipeBase):
+    """delete noops before backend elimination. I think they should only ever occur at the beginnign of a sequence, 
+        due to the various at transformation and inlining passes."""    
+    match pipe:
+        case Seq(left, right):
+            left = delete_noops(left)
+            right = delete_noops(right)
+            if type(left) == Noop:
+                return right
+            elif type(right) == Noop:
+                return left
+            else:
+                return pipe
+        case Let(ret, left, right):
+            left = delete_noops(left)
+            right = delete_noops(right)
+            if type(left) == Noop:
+                print("ERROR in [delete_noops] Found a noop pipe in the inner expr of a Let")
+                exit(1)
+            elif type(right) == Noop:
+                return left # can just drop right
+            else:
+                return pipe
+
+def delete_noops(pipe: PipeBase):
+    """Delete noops before backend elimination. I think they should only ever occur in a sequence, 
+        due to the various at transformation and inlining passes."""    
+    match pipe:
+        case Seq(left, right):
+            left = delete_noops(left)
+            right = delete_noops(right)
+            if type(left) == Noop:
+                return right
+            elif type(right) == Noop:
+                return left
+            else:
+                return pipe
+        case _:
+            return recurse(delete_noops, pipe)
+
+
+"""
+Notes: 
+    move_to_at and delete_noops are temporary hacks that we can probably
+    eliminate once we figure out the direct way to turn a program 
+    that uses moves into segment programs.
+"""
 
 def frontend_passes(pipe):
+    # 0. convert moves to ats
+    ip = move_to_at(pipe)
     # 1. instantiate the pipe (name for state variables)
-    ip = instantiate(pipe)
+    ip = instantiate(ip)
     # 2. names for variables
     ip = rename_vars({}, ip)
     # 3. bind return variables to atoms
@@ -334,6 +446,9 @@ def frontend_passes(pipe):
     ip = self_at_elimination(ip)
     # 6. add explicit packet arguments (this can happen anywhere)
     ip = explicit_packet_args(ip)
+    # 7. delete noops. They should only occur at the start of a sequence, because 
+    #    of the various at transformation and inlining passes.
+    ip = delete_noops(ip)
     # program should now be ready for conversion to IR in backend.py
     return ip
 
