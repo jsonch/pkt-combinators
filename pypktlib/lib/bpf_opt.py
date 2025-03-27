@@ -3,37 +3,72 @@
 from .backend import *
 from .syntax import *
 #Give me a pre- and post-annotation segment, and the location of the annotator. Return a pipe with the annotation optimization installed
-def transform(pre_p : Segment, post_p : Segment, l : str):
+def transform(pre_p : Segment, loop_p : Segment, rest : Segment, l : str):
     #Assume that pre_p is one segment that happens entirely at location l
 
     assert pre_p.location == l, "location is " + pre_p.location
 
     #We will find all of the queues that take in arguments from this segment. Their list of variables are what we are going to annotate with.
     #TODO: For now just does one. I don't know what to do if the list of vars is different for each one. 
-    queue_subsequent = next(filter(lambda q: q.src_seg == pre_p.name, post_p.queues))
+    queue_subsequent = next(filter(lambda q: q.src_seg == pre_p.name, loop_p.queues))
 
 
     print(pretty_print(post_p))
     print(generate_history_initialization_function(queue_subsequent.msg_ty, 2))
     print(generate_c_function_annotator(queue_subsequent.msg_ty, 2))
     print("NEW PIPE")
-    new_seg = annotate(pre_p, queue_subsequent.msg_ty)
+    new_annotator_seg = annotate(pre_p, queue_subsequent.msg_ty)
+    new_deannotator_seg = deannotate(loop_p, queue_subsequent.msg_ty)
+
     #Put the new segment in place of the old, adding the annotator.
     other_segs = list(filter(lambda s: s.name != pre_p.name, post_p.segments))
     other_segs.append(new_seg)
     new_prog = replace(post_p, segments=other_segs)
+
     print(pretty_print(new_prog))
 
-
+#Walk through the pipe and insert it right before the last move.
+"""def insert_before_move(pipe : PipeBase, toinsert : PipeBase):
+    match pipe:
+        case At(location, inner_pipe):
+            return pipe
+        case Seq(left, right):
+            return last_atom(right)
+        case Let(ret, left, right):
+            return last_atom(right)
+        case Atom(_, _, _, _): 
+            return pipe
+        case Exit(_):
+            # exit pipes don't change the segment or bind variables. No change.
+            return pipe
+        case Switch(_, cases):
+            # switch pipes don't change the segment or bind variables.
+            # Also, the switch is inlined, so we don't need to know the names of the segments that 
+            # it jumps to, or the variables that are bound in each case. 
+            # but, we do have to recurse on the cases, to segment those pipes.
+            new_cases = {}
+            for k, v in cases.items():
+                prog, _, new_case = pipe_to_segments(prog, cur_seg_name, bound_vars, v)
+                new_cases[k] = new_case
+            return prog, cur_seg_name, replace(pipe, cases=new_cases)
+        case NicDeliver(_, pipes):
+            new_pipes = []
+            for k, v in pipes:
+                prog, _, new_pipe = pipe_to_segments(prog, cur_seg_name, bound_vars, v, rx_dev=k)
+                new_pipes.append((k, new_pipe))
+            return prog, cur_seg_name, replace(pipe, pipes=new_pipes)
+"""
 def annotate(pre_p : Segment, vars : list[Var]):
-    #get the underlying pipe. Have already checked location.
+    #get the underlying pipe. Have already checked location, so it shoulda all be at one location with maybe a move at the end.
+    #Need to split pipe to get the last move off of the pipe. 
     under_p = pre_p.pipe
     new_p = seq(under_p, do(annotator_atom(vars), [v.name for v in vars], state="history_var_name"))
     print("Printed new segment!")
     return replace(pre_p, pipe=new_p)
 
 def deannotate(post_p : Segment, vars : list[Var]):
-    return None
+    under_p = pre_p.pipe
+    
 
 def annotator_atom(vars : list[Var]):
     return atom("void*", "initialize_history", "void*", "my_function", [v.ty for v in vars])
