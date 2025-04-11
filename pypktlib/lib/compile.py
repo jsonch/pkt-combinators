@@ -10,6 +10,7 @@ from . import dpdk_printer
 def compile_dpdk(pipe:PipeBase):
     """Compile a pipe defined with the usersyntax constructors to DPDK code."""
     ir_pipe = pipe.to_ir()
+    print(syntax.pretty_print(ir_pipe))
     pipe_prog = frontend.frontend_passes(ir_pipe)
     segment_prog = backend.backend_passes(pipe_prog)
     return dpdk_printer.irprog_to_dpdkcode(segment_prog)

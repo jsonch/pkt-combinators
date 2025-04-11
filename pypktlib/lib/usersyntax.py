@@ -92,6 +92,8 @@ class Bank(metaclass = DotMakerMeta(lambda name : Bank(name))):
 class Core(metaclass=DotMakerMeta(lambda name : Core(name))):
     def __init__(self, name=None):
         self.name = name
+    def __str__(self):
+        return f"Core {self.name}"
     def to_ir(self):
         return self.name
 
@@ -423,7 +425,7 @@ class SwitchPipe(PipeBase):
                     cases_str += "\n"
         cases_str += "}"
         cases_str = indent(2, cases_str)
-        return f"Switch({self.matchvar}, {cases_str})"
+        return f"sw({self.matchvar}, {cases_str})"
     def __repr__(self):
         cases_str = "{\n"
         for val, pipe in self.cases.items():
@@ -533,6 +535,17 @@ class Exit(PipeBase):
     def to_ir(self):
         nicPort = syntax.NicPort("", self.out_port_tuple[0], self.out_port_tuple[1])
         return syntax.Exit(dest=nicPort)
+    
+class Transform(PipeBase):
+    """Transform a pipe with the given scheme"""
+    def __init__(self, pipe, scheme):
+        self.pipe = pipe
+        self.scheme = scheme
+    def __str__(self):
+        return f"Transform with {self.scheme.name}: {str(self.pipe)}"
+    def to_ir(self):
+        print("Called Transform IR", self.pipe)
+        return self.scheme.transform(self.pipe.to_ir())
     
 
 # class Send(PipeBase):

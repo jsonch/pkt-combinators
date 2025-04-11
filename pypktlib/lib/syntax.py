@@ -326,6 +326,18 @@ def fresh_name(name):
 def fresh_var(var : Var):
     return Var(name=fresh_name(var.name), ty=var.ty)
 
+def freshen_all_vars(pipe : PipeBase):
+    """
+    instantiate a unique instance of each atom in the pipe, 
+    by giving each atom a unique state variable name, EVEN IF IT ALREADY HAS ONE.
+    """
+    match pipe: 
+        case Atom(None, atom, args, return_var):
+            state_var = varty(fresh_name(name(atom)+"_state"), state_ty)
+            return replace(pipe, atom=replace(atom, state=state_var))
+        case _: return recurse(freshen_all_vars, pipe)
+
+
 
 #### printers
 def newtab(n):
