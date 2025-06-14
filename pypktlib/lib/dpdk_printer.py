@@ -1,8 +1,15 @@
 """Print backend IR to DPDK"""
 
-import os, shutil
+import os, shutil, textwrap
 from itertools import chain
 from .backend import *
+
+def indent(n, line):
+    def nt(n): 
+        return "\n" + " " * n
+    return nt(n).join(line.split("\n"))
+
+RX_BATCH_LEN = 32 # number of packets to pull from nic queue at a time
 
 mbuf = Var("mbuf", "struct rte_mbuf *")
 
@@ -66,7 +73,13 @@ typedef struct mario_ctx_t {{
 }} mario_ctx_t;
 """
 
-def pipe_to_statement(pipe : PipeBase):
+def pipe_to_statement(pipe : PipeBase, toexit="return;"):
+    """Print statements for a pipe. toexit is the string that prints 
+       after an Exit(...), to terminate processing of current packet. 
+       Use "return;" if you are in a segment that pulls from a queue, 
+       one packet at a time, or "continue;" if you are in a segment 
+       that pulls a batch from an RX device, and processes them 
+       in a loop."""
     match pipe:
         case Atom(state, atom, args, return_var):
             # an "Atom" is a call to an atom function
@@ -99,23 +112,23 @@ def pipe_to_statement(pipe : PipeBase):
             case_strs = []
             for k, v in cases.items():
                 if (k == None):
-                    case_strs.append(f"\ndefault:{{\n{tablines(4, pipe_to_statement(v))  }\n}}")
+                    case_strs.append(f"\ndefault:{{\n{tablines(4, pipe_to_statement(v, toexit))  }\n}}")
                 else:
-                    case_strs.append(f"\ncase {k}:{{\n{tablines(4, pipe_to_statement(v)+"\nbreak;")  }\n}}")
+                    case_strs.append(f"\ncase {k}:{{\n{tablines(4, pipe_to_statement(v, toexit)+"\nbreak;")  }\n}}")
             return f"switch (ctx->{var.name}) {{{tablines(4,''.join(case_strs))}\n}}"
         case Move(dst_queue):
-            return f"rte_ring_enqueue({dst_queue.name}, {mbuf.name});"
+            return f"rte_ring_enqueue({dst_queue.name}, {mbuf.name});\n{toexit}\n"
         case Seq(left, right):
             # a "Seq" is a sequence of two pipes
-            return pipe_to_statement(left) + "\n" + pipe_to_statement(right)
+            return pipe_to_statement(left, toexit) + "\n" + pipe_to_statement(right, toexit)
         case Let(_, left, right):
             # local variables are already declared and the return is passed by ref, 
             # so this is just a sequence of two pipes
-            return pipe_to_statement(left) + "\n" + pipe_to_statement(right)
+            return pipe_to_statement(left, toexit) + "\n" + pipe_to_statement(right, toexit)
         case At(_, inner_pipe):
             raise Exception("At should have been removed by now")
         case Exit(None):
-            return f"rte_pktmbuf_free({mbuf.name});"
+            return f"rte_pktmbuf_free({mbuf.name});\n{toexit}"
         case Exit(dest):
             devnum = dest.devnum
             if (type(devnum)) == Var:
@@ -125,7 +138,7 @@ def pipe_to_statement(pipe : PipeBase):
                 devnum_str = str(devnum)
             stmts = [
                 f"const uint16_t nb_tx = rte_eth_tx_burst({devnum_str}, {dest.queue}, &{mbuf.name}, 1);",
-                f"if (nb_tx == 0) {{rte_pktmbuf_free({mbuf.name});}}"]
+                f"if (nb_tx == 0) {{rte_pktmbuf_free({mbuf.name});}}\n{toexit}"]
             return "\n".join(stmts)            
         case _:
             raise Exception("Unknown pipe type: "+str(type(pipe)))
@@ -138,30 +151,42 @@ def segment_function(segment : Segment):
     if (segment.location == start_loc):
         return ""
     queue = segment.rx_queue
-    # if queue is none, this is a segment reading from the network and rx_dev should be set
-    run_body = f"""
-    mario_ctx_t* ctx = rte_pktmbuf_mtod_offset({mbuf.name}, mario_ctx_t *, rte_pktmbuf_pkt_len({mbuf.name}));
-    {packet_arg.ty} {packet_arg.name} = rte_pktmbuf_mtod({mbuf.name}, {packet_arg.ty});
-    {tablines(8, pipe_to_statement(segment.pipe))}
-    """
-    if (queue == None):
-        if_name, queue_num = segment.rx_dev.devnum, segment.rx_dev.queue
-        fcn=f"""
-void {segment_function_name(segment)}(void) {{
-    {mbuf.ty} {mbuf.name} = NULL;
-    const uint16_t nb_rx = rte_eth_rx_burst({if_name}, {queue_num}, &{mbuf.name}, 1);
-    if (nb_rx > 0) {{{run_body}}}
-    return;    
-}}"""
-    else:
-        fcn=f"""
-void {segment_function_name(segment)}(void) {{
-    {mbuf.ty} {mbuf.name} = NULL;
-    if (rte_ring_dequeue({queue}, (void **) &{mbuf.name}) == 0) {{{run_body}}}
-    return;
-}}"""
+    if (queue == None): # no queue -- pull from a NIC
+        if_name, queue_num = segment.rx_dev.devnum, segment.rx_dev.queue   
+        run_body = textwrap.dedent(f"""
+            mario_ctx_t* ctx = rte_pktmbuf_mtod_offset({mbuf.name}, mario_ctx_t *, rte_pktmbuf_pkt_len({mbuf.name}));
+            {packet_arg.ty} {packet_arg.name} = rte_pktmbuf_mtod({mbuf.name}, {packet_arg.ty});
+            {indent(12, pipe_to_statement(segment.pipe, "continue;"))}
+        """).strip()
+        fcn=textwrap.dedent(f"""
+            void {segment_function_name(segment)}(void) {{
+                {mbuf.ty} {mbuf.name}s[{RX_BATCH_LEN}];
+                {mbuf.ty} {mbuf.name} = NULL;
+                const uint16_t nb_rx = rte_eth_rx_burst({if_name}, {queue_num}, &{mbuf.name}, {RX_BATCH_LEN});
+                if (nb_rx > 0) {{
+                    for (uint32_t i = 0; i < nb_rx; i++){{
+                        mbuf = mbufs[i];
+                        {indent(24, run_body)}
+                    }}
+                }}
+                return;
+            }}""").strip()
+    else: # queue -- pull one packet at a time from it
+        run_body = textwrap.dedent(f"""
+            mario_ctx_t* ctx = rte_pktmbuf_mtod_offset({mbuf.name}, mario_ctx_t *, rte_pktmbuf_pkt_len({mbuf.name}));
+            {packet_arg.ty} {packet_arg.name} = rte_pktmbuf_mtod({mbuf.name}, {packet_arg.ty});
+            {indent(12, pipe_to_statement(segment.pipe))}
+        """).strip()
+        fcn=textwrap.dedent(f"""
+            void {segment_function_name(segment)}(void) {{
+                {mbuf.ty} {mbuf.name} = NULL;
+                if (rte_ring_dequeue({queue}, (void **) &{mbuf.name}) == 0) {{
+                    {indent(20, run_body)}
+                }}
+                return;
+            }}""").strip()
     return fcn
- 
+
 def state_decl_init_of_pipe(pipe : PipeBase):
     match pipe:
         case Atom(state, atom, args, return_var):
