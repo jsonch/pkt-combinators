@@ -101,7 +101,7 @@ def pipe_to_statement(pipe : PipeBase):
                 if (k == None):
                     case_strs.append(f"\ndefault:{{\n{tablines(4, pipe_to_statement(v))  }\n}}")
                 else:
-                    case_strs.append(f"\ncase {k}:{{\n{tablines(4, pipe_to_statement(v))  }\n}}")
+                    case_strs.append(f"\ncase {k}:{{\n{tablines(4, pipe_to_statement(v)+"\nbreak;")  }\n}}")
             return f"switch (ctx->{var.name}) {{{tablines(4,''.join(case_strs))}\n}}"
         case Move(dst_queue):
             return f"rte_ring_enqueue({dst_queue.name}, {mbuf.name});"
@@ -115,7 +115,7 @@ def pipe_to_statement(pipe : PipeBase):
         case At(_, inner_pipe):
             raise Exception("At should have been removed by now")
         case Exit(None):
-            return f"rte_pktmbuf_free({mbuf.name});\nreturn;"
+            return f"rte_pktmbuf_free({mbuf.name});"
         case Exit(dest):
             devnum = dest.devnum
             if (type(devnum)) == Var:
@@ -125,8 +125,7 @@ def pipe_to_statement(pipe : PipeBase):
                 devnum_str = str(devnum)
             stmts = [
                 f"const uint16_t nb_tx = rte_eth_tx_burst({devnum_str}, {dest.queue}, &{mbuf.name}, 1);",
-                f"if (nb_tx == 0) {{rte_pktmbuf_free({mbuf.name});}}",
-                "return;"]
+                f"if (nb_tx == 0) {{rte_pktmbuf_free({mbuf.name});}}"]
             return "\n".join(stmts)            
         case _:
             raise Exception("Unknown pipe type: "+str(type(pipe)))
