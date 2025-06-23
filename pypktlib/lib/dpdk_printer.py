@@ -114,7 +114,8 @@ def pipe_to_statement(pipe : PipeBase, toexit="return;"):
                 if (k == None):
                     case_strs.append(f"\ndefault:{{\n{tablines(4, pipe_to_statement(v, toexit))  }\n}}")
                 else:
-                    case_strs.append(f"\ncase {k}:{{\n{tablines(4, pipe_to_statement(v, toexit)+"\nbreak;")  }\n}}")
+                    inner = pipe_to_statement(v, toexit)+"\nbreak;"
+                    case_strs.append(f"\ncase {k}:{{\n{tablines(4, inner)  }\n}}")
             return f"switch (ctx->{var.namestr()}) {{{tablines(4,''.join(case_strs))}\n}}"
         case Move(dst_queue):
             return f"rte_ring_enqueue({dst_queue.name}, {mbuf.name});\n{toexit}\n"
