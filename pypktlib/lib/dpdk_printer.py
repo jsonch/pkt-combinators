@@ -163,7 +163,7 @@ def segment_function(segment : Segment):
             void {segment_function_name(segment)}(void) {{
                 {mbuf.ty} {mbuf.name}s[{RX_BATCH_LEN}];
                 {mbuf.ty} {mbuf.name} = NULL;
-                const uint16_t nb_rx = rte_eth_rx_burst({if_name}, {queue_num}, &{mbuf.name}, {RX_BATCH_LEN});
+                const uint16_t nb_rx = rte_eth_rx_burst({if_name}, {queue_num}, {mbuf.name}s, {RX_BATCH_LEN});
                 if (nb_rx > 0) {{
                     for (uint32_t i = 0; i < nb_rx; i++){{
                         mbuf = mbufs[i];
