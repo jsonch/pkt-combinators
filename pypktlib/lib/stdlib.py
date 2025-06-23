@@ -100,7 +100,7 @@ parse_eth = Atom[None, None,ref[eth_t]](
     name="parse_eth", 
     cstr="""
 void parse_eth(void * nostate, char * pkt, eth_t* eth) {
-    eth = (eth_t*) pkt;
+    *eth = *((eth_t*)pkt);
 }
 """
 )
