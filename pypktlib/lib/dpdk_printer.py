@@ -118,7 +118,7 @@ def pipe_to_statement(pipe : PipeBase, toexit="return;"):
                     case_strs.append(f"\ncase {k}:{{\n{tablines(4, inner)  }\n}}")
             return f"switch (ctx->{var.namestr()}) {{{tablines(4,''.join(case_strs))}\n}}"
         case Move(dst_queue):
-            return f"rte_ring_enqueue({dst_queue.name}, {mbuf.name});\n{toexit}\n"
+            return f"if (0 != rte_ring_enqueue({dst_queue.name}, {mbuf.name})){{rte_pktmbuf_free(mbuf);}}\n{toexit}\n"
         case Seq(left, right):
             # a "Seq" is a sequence of two pipes
             return pipe_to_statement(left, toexit) + "\n" + pipe_to_statement(right, toexit)
