@@ -96,6 +96,27 @@ class Core(metaclass=DotMakerMeta(lambda name : Core(name))):
         return self.name
 
 
+_eth_queue_counters = {}
+def Eth(device_id, queue_id=None):
+    """
+        A named Ethernet device with an optional queue number.
+        If queue_id is None, the next queue number for this device is assigned.
+        If queue_id is specified, it is used as the queue number.
+    """
+    global _eth_queue_counters
+    if queue_id is None:
+        # Auto-assign queue number for this device
+        if device_id not in _eth_queue_counters:
+            _eth_queue_counters[device_id] = 0
+        queue_id = _eth_queue_counters[device_id]
+        if (queue_id >= 8):
+            print("WARNING: using more than 8 queues for a single device. This may not be supported by the backend yet.")
+        _eth_queue_counters[device_id] += 1
+    return (device_id, queue_id)
+
+
+
+
 I = TypeVar('I')
 O = TypeVar('O')
 # initializer for an atom's state

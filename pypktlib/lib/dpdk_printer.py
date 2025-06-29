@@ -421,12 +421,14 @@ config = """
 #define BURST_SIZE 64
 #define CACHE_LINE_SIZE 64
 #define RING_SIZE 1024
+#define NUM_TX_QUEUES 8
 cfg_t cfg = {
 	.rx_ring_size = RX_RING_SIZE,
 	.tx_ring_size = TX_RING_SIZE,
 	.num_mbufs = NUM_MBUFS,
 	.mbuf_cache_size = MBUF_CACHE_SIZE,
-    .metadata_size = sizeof(mario_ctx_t)
+    .metadata_size = sizeof(mario_ctx_t),
+    .num_tx_queues = NUM_TX_QUEUES
 };    
 """
 
@@ -466,7 +468,6 @@ def irprog_to_dpdkcode(irprog : IrProg):
 /********** main ***********/
 {main_fcn(n_locs)}
 """
-
 
 
 # DPDK program build directory setup

@@ -15,6 +15,7 @@ typedef struct cfg_t {
 	int      num_mbufs;
 	int      mbuf_cache_size;
 	uint16_t metadata_size;
+	uint16_t num_tx_queues;
 } cfg_t;
 
 
@@ -22,7 +23,10 @@ static inline int
 port_init(cfg_t cfg, uint16_t port, struct rte_mempool *mbuf_pool)
 {
 	struct rte_eth_conf port_conf;
-	const uint16_t rx_rings = 1, tx_rings = 1;
+	// rx and tx rings per port. Each ring is a queue.
+	const uint16_t rx_rings = 1;
+    uint16_t tx_rings = cfg.num_tx_queues;
+
 	uint16_t nb_rxd = cfg.rx_ring_size;
 	uint16_t nb_txd = cfg.tx_ring_size;
 	int retval;
@@ -41,6 +45,13 @@ port_init(cfg_t cfg, uint16_t port, struct rte_mempool *mbuf_pool)
 				port, strerror(-retval));
 		return retval;
 	}
+
+    // Check if requested TX queues are supported
+    if (cfg.num_tx_queues > dev_info.max_tx_queues) {
+        printf("Error: Requested %u TX queues, but device supports max %u\n",
+                cfg.num_tx_queues, dev_info.max_tx_queues);
+        return -1;
+    }
 
 	if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE)
 		port_conf.txmode.offloads |=
