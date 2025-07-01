@@ -178,7 +178,16 @@ def type_pipeline_vars(cur_ret : Var, pipe : PipeBase):
                 new_pipes.append((k, new_pipe))
             return None, replace(pipe, pipes=new_pipes)
         
-
+def freshen_all_vars(pipe : PipeBase):
+    """
+    instantiate a unique instance of each atom in the pipe, 
+    by giving each atom a unique state variable name, EVEN IF IT ALREADY HAS ONE.
+    """
+    match pipe: 
+        case Atom(None, atom, args, return_var):
+            state_var = varty(fresh_name(name(atom)+"_state"), state_ty)
+            return replace(pipe, atom=replace(atom, state=state_var))
+        case _: return recurse(freshen_all_vars, pipe)
 
 def switch_continuations(pipe : PipeBase):
     """
@@ -331,6 +340,7 @@ def locate_pipes(pipe : PipeBase, cur_loc : str):
             # cases have the same end location
             new_cases = {k: locate_pipes(v, cur_loc) for k, v in cases.items()}
             case_end_locs = [v.end for v in new_cases.values()]
+            print(case_end_locs)
             multi_end_loc = "( " + " or ".join(case_end_locs) + " )"
             if (len(set(case_end_locs)) == 1):
                 return replace(pipe, cases=new_cases, start=cur_loc, end=case_end_locs[0])

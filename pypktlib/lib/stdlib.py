@@ -168,7 +168,7 @@ void print(void* nostate, char* pkt, char* str) {
 def rr_counter(size):
     return Atom[ref[counter_state_ty], None, ref[uint32_t]](
     state=make_counter(size),
-    name="count",
+    name="rr_count",
     cstr="""
 void count(counter_state_t* state, char* pkt, uint32_t* count) {
     // update counter and return modulo 5
