@@ -116,7 +116,6 @@ def Eth(device_id, queue_id=None):
 
 
 
-
 I = TypeVar('I')
 O = TypeVar('O')
 # initializer for an atom's state
@@ -125,20 +124,25 @@ class StateInit(Generic[I, O]):
     concrete_types = None
     @classmethod
     def __class_getitem__(cls, params):
-        cls.concrete_types = params # (S, A, R)
-        return super().__class_getitem__(params)
+        """get a StateInit class with concrete types parameters"""
+        # Create a new class that inherits from StateInit
+        class ParameterizedStateInit(cls):
+            concrete_types = params
+        return ParameterizedStateInit
     def __init__(self, name, cstr, args=None):
+        """construct an instance of an initializer. Args is optional."""
         self.name = name
         self.cstr = cstr
         self.args = args
+        if hasattr(self.__class__, 'concrete_types'):
+            self.concrete_types = self.__class__.concrete_types
     def __call__(self, *args):
-        """Call populates the arguments"""
-        tin, tout = self.concrete_types        
-        return StateInit[tin, tout](self.name, self.cstr, args)
+        """represents one distinct call of the initializer, by rebuilding with args filled in"""
+        return self.__class__(self.name, self.cstr, args)
     def ret_ty(self):
+        """get the return type"""
         _, rty = self.concrete_types
         return rty
-
 
 
 S = TypeVar('S') # State type
