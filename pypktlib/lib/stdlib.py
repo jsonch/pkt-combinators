@@ -142,6 +142,18 @@ counter_state_t* count_init(int len){
     return state;
 }""")
 
+make_lock = StateInit[uint32_t, ref[lock_state_ty]](
+    name = "lock_init",
+    cstr = """
+lock_state_t* lock_init(int len){
+    lock_state_t* state = malloc(sizeof(lock_state_t));
+    state->core = mmap(NULL, len * sizeof(uint32_t *), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    for (int i = 0; i < len; i++){
+        state->core[i] = 0;
+    }
+    return state;
+}""")
+
 counter = Atom[ref[counter_state_ty], None, ref[uint32_t]](
     state=make_counter(1),
     name="count",
@@ -152,9 +164,6 @@ void count(counter_state_t* state, char* pkt, uint32_t* count) {
         *count = *state->counter;
     }"""
 )
-
-
-
 
 print_ct = Atom[None, ref[uint32_t], None](
     name="print_ct",
@@ -175,6 +184,7 @@ void print(void* nostate, char* pkt, char* str) {
 )
 
 acquire_lock = Atom[ref[lock_state_ty], ref[uint32_t], None](
+    state=make_lock(1),
     name="acquire", 
     cstr="""
 void acquire(lock_state_t* state, char* pkt, uint32_t* core) {
@@ -195,6 +205,7 @@ void acquire(lock_state_t* state, char* pkt, uint32_t* core) {
 )
 
 release_lock = Atom[ref[lock_state_ty], ref[uint32_t], None](
+    state=make_lock(1),
     name="release",
     cstr="""
 void release(lock_state_t* state, char* pkt, uint32_t* core) {
