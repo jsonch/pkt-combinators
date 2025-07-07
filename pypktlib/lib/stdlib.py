@@ -174,7 +174,7 @@ void print(void* nostate, char* pkt, char* str) {
 """
 )
 
-acquire_lock(lock_name) = Atom[ref[lock_state_ty], ref[uint32_t], None](
+acquire_lock = Atom[ref[lock_state_ty], ref[uint32_t], None](
     name="acquire", 
     cstr="""
 void acquire(lock_state_t* state, char* pkt, uint32_t* core) {
