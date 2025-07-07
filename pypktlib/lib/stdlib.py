@@ -121,6 +121,15 @@ typedef struct counter_state_t {
     uint32_t* counter;
 } counter_state_t;
 """)
+
+lock_state_ty = UserTy(
+    name = "lock_state_t", 
+    cstr= """
+    typedef struct lock_state_t {
+        uint32_t* core;
+    } lock_state_t;
+"""
+)
 make_counter = StateInit[uint32_t, ref[counter_state_ty]](
     name = "count_init",
     cstr = """
@@ -161,6 +170,40 @@ print_str = Atom[None, str_t, None](
     cstr="""
 void print(void* nostate, char* pkt, char* str) {
     printf("%s", str);
+}
+"""
+)
+
+acquire_lock(lock_name) = Atom[ref[lock_state_ty], ref[uint32_t], None](
+    name="acquire", 
+    cstr="""
+void acquire(lock_state_t* state, char* pkt, uint32_t* core) {
+    uint32_t current_core = *core; // Get the current core ID
+    while (1) {
+        uint32_t lock_value = *state->core;
+
+        if (lock_value == 0) { // Lock is free
+            *state->core = current_core; // Acquire the lock
+            break; // Lock acquired, exit loop
+        } else if (lock_value == current_core) { // Lock is already held by this core
+            break; // Already hold the lock, exit loop
+        }
+        // If not acquired, continue looping and waiting
+    }
+}
+"""
+)
+
+release_lock = Atom[ref[lock_state_ty], ref[uint32_t], None](
+    name="release",
+    cstr="""
+void release(lock_state_t* state, char* pkt, uint32_t* core) {
+    uint32_t current_core = *core; // Get the current core ID
+
+    // Only release the lock if the current core is the one holding it
+    if (*state->core == current_core) {
+        *state->core = 0; // Set lock value to 0 (free)
+    }
 }
 """
 )
