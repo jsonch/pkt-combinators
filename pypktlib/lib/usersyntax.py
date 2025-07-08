@@ -339,7 +339,9 @@ class Pipe(PipeBase):
         # dprint("Pipe.__init__")
         # dprint("p="+str(p))
         PipeBase.instance_num += 1
-        self.p = refresh(p, PipeBase.instance_num)
+        #self.p = refresh(p, PipeBase.instance_num)
+        self.p = p
+        #TODO: IS THIS REFRESH NEEDED? For ANon variables???
     def __str__(self):
         return f"Pipe(\n{indent(2, str(self.p))}\n)"
     def __repr__(self):
